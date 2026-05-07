@@ -1,0 +1,17 @@
+# dependencies
+node_modules
+
+# build output
+.next
+dist
+build
+coverage
+
+# misc
+.DS_Store
+*.tsbuildinfo
+.pnpm-debug.log*
+*.log
+.pnpm-store
+# env files
+.env*

@@ -1,0 +1,11 @@
+{
+  "name": "@vessel/typescript-config",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "index.json"
+  ],
+  "exports": {
+    ".": "./index.json"
+  }
+}

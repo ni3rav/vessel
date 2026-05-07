@@ -1,0 +1,13 @@
+{
+  "name": "vessel",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel --if-present dev",
+    "lint": "pnpm -r --parallel --if-present lint",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --parallel --if-present typecheck",
+    "format": "pnpm -r --parallel --if-present format"
+  }
+}
