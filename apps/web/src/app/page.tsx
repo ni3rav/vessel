@@ -1,7 +1,7 @@
 export default function Home() {
   return (
-    <div className="w-4/5 h-full grid place-items-center">
-      <h1>Hello World</h1>
-    </div>
+    <section className="w-full text-center">
+      <h1 className="text-3xl font-semibold tracking-tight">Hello World</h1>
+    </section>
   );
 }

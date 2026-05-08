@@ -40,8 +40,10 @@ export default function RootLayout({
         notoSansHeading.variable
       )}
     >
-      <body className="h-lvh w-screen">
-        <main className="size-full">{children}</main>
+      <body className="min-h-dvh bg-background text-foreground">
+        <main className="mx-auto flex min-h-dvh w-full max-w-7xl items-center justify-center px-4 py-8">
+          {children}
+        </main>
       </body>
     </html>
   );
