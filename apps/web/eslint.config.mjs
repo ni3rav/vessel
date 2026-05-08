@@ -7,9 +7,9 @@ export default createConfig(
     ...nextVitals,
     ...nextTypescript,
     {
-      ignores: [".next/**", "out/**", "build/**", "dist/**", "next-env.d.ts"]
+      ignores: [".next/**", "out/**", "build/**", "dist/**", "next-env.d.ts"],
     },
-  // Add local overrides for @vessel/web here.
+    // Add local overrides for @vessel/web here.
   ],
   { ignores: [] }
 );

@@ -1,1 +1,1 @@
-module.exports = require("@vessel/prettier-config");
+module.exports = require("./packages/prettier-config");

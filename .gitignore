@@ -15,3 +15,4 @@ coverage
 .pnpm-store
 # env files
 .env*
+!.env.example
