@@ -1,20 +1,39 @@
+# Build from repository root context:
+#   docker build -f apps/worker/Dockerfile -t vessel-worker:latest .
+
 # ─── Stage 1: Builder ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
-WORKDIR /build
+WORKDIR /repo
 
-COPY package.json tsconfig.json ./
+RUN corepack enable
 
-# Install devDependencies (typescript, @types/node) for compilation
-RUN npm install --include=dev
+# Copy workspace manifests first for better layer caching
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/worker/package.json apps/worker/package.json
+COPY packages/r2/package.json packages/r2/package.json
 
-COPY src ./src
+# Install only dependencies needed by worker and its workspace deps
+RUN pnpm install --frozen-lockfile --filter @vessel/worker...
 
-RUN npm run build
+# Copy sources and build worker (build script also builds @vessel/r2)
+COPY apps/worker apps/worker
+COPY packages/r2 packages/r2
+
+# Typecheck and then bundle worker into a single runtime file
+RUN pnpm --filter @vessel/r2 build
+RUN pnpm --filter @vessel/worker exec tsc --noEmit
+RUN pnpm dlx esbuild apps/worker/src/index.ts \
+  --bundle \
+  --platform=node \
+  --target=node22 \
+  --format=cjs \
+  --minify \
+  --outfile=/prod/dist/index.js
 
 
 # ─── Stage 2: Runner ──────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 # Install ffmpeg (includes ffprobe)
 RUN apk add --no-cache ffmpeg
@@ -27,9 +46,8 @@ RUN mkdir -p /data/output /data/temp && chown -R worker:worker /data
 
 WORKDIR /app
 
-# Copy compiled output only — no devDependencies, no source
-COPY --from=builder /build/dist ./dist
-COPY --from=builder /build/package.json ./package.json
+# Copy only bundled worker output
+COPY --from=builder /prod/dist ./dist
 
 # Switch to non-root user
 USER worker
@@ -41,11 +59,6 @@ ENV OUTPUT_DIR=/data/output \
     FFPROBE_PATH=ffprobe \
     HLS_SEGMENT_DURATION=6 \
     LOG_LEVEL=info \
-    R2_ACCOUNT_ID="" \
-    R2_ACCESS_KEY_ID="" \
-    R2_SECRET_ACCESS_KEY="" \
-    R2_BUCKET="" \
-    R2_PUBLIC_BASE_URL="" \
     NODE_ENV=production
 
 # Accept job payload via stdin
