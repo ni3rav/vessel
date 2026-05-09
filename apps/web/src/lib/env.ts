@@ -12,6 +12,6 @@ export const env = z
     R2_ACCESS_KEY_ID: z.string(),
     R2_SECRET_ACCESS_KEY: z.string(),
     R2_BUCKET: z.string(),
-    NEXT_PUBLIC_R2_PUBLIC_URL: z.url(),
+    NEXT_PUBLIC_R2_PUBLIC_URL: z.string(),
   })
   .parse(process.env);

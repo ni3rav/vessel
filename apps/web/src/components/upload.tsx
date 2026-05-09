@@ -6,48 +6,56 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { tryCatch } from "@/lib/try-catch";
+
+function uploadFileToR2(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`R2 upload failed with status ${xhr.status}`));
+    });
+    xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.send(file);
+  });
+}
+
+const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav"];
+const ALLOWED_EXTENSIONS = [".mp3", ".wav"];
 
 export default function FileUpload04() {
   const [file, setFile] = useState<File | null>(null);
+  const [progress, setProgress] = useState(0);
   const [isUploading, startUploadTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-  const ACCEPTED_AUDIO_TYPES = [
-    "audio/mpeg",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/webm",
-    "audio/ogg",
-    "audio/mp4",
-    "audio/x-m4a",
-    "audio/aac",
-    "audio/flac",
-    "audio/x-flac",
-  ];
-  const ACCEPTED_AUDIO_EXTENSIONS = [".mp3", ".wav", ".ogg", ".webm", ".m4a", ".aac", ".flac"];
 
-  const isSupportedAudioFile = (incomingFile: File) => {
-    const fileName = incomingFile.name.toLowerCase();
-    const hasSupportedExtension = ACCEPTED_AUDIO_EXTENSIONS.some((ext) => fileName.endsWith(ext));
-    return ACCEPTED_AUDIO_TYPES.includes(incomingFile.type) || hasSupportedExtension;
+  const isSupportedFile = (incomingFile: File) => {
+    const ext = `.${incomingFile.name.split(".").pop()?.toLowerCase() ?? ""}`;
+    return ALLOWED_MIME_TYPES.includes(incomingFile.type) || ALLOWED_EXTENSIONS.includes(ext);
   };
 
   const handleFile = (incomingFile: File | undefined) => {
     if (!incomingFile) return;
 
-    if (!isSupportedAudioFile(incomingFile)) {
-      toast.error("Please upload a valid audio file (MP3, WAV, OGG, WEBM, M4A, AAC, or FLAC).", {
-        position: "bottom-right",
-        duration: 3000,
-      });
+    if (!isSupportedFile(incomingFile)) {
+      toast.error("Only MP3 and WAV files are allowed.", { position: "bottom-right", duration: 3000 });
       return;
     }
 
     if (incomingFile.size > MAX_FILE_SIZE_BYTES) {
-      toast.error("File is too large. Maximum allowed size is 15MB.", {
-        position: "bottom-right",
-        duration: 3000,
-      });
+      toast.error("File exceeds the 15MB limit.", { position: "bottom-right", duration: 3000 });
       return;
     }
 
@@ -66,6 +74,7 @@ export default function FileUpload04() {
   const resetFile = () => {
     if (isUploading) return;
     setFile(null);
+    setProgress(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -75,9 +84,57 @@ export default function FileUpload04() {
     if (!file) return;
 
     startUploadTransition(async () => {
-      // TODO: Replace with actual upload action/endpoint call.
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      toast.success(`Uploaded ${file.name}`);
+      setProgress(0);
+
+      const { data: presignRes, error: presignNetworkError } = await tryCatch(
+        fetch("/api/upload/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, contentType: file.type, size: file.size }),
+        }),
+      );
+      if (presignNetworkError) {
+        toast.error("Network error — could not reach server.", { position: "bottom-right" });
+        return;
+      }
+      if (!presignRes.ok) {
+        const msg = presignRes.status === 401 ? "Not authenticated." : await presignRes.text();
+        toast.error(msg, { position: "bottom-right" });
+        return;
+      }
+
+      const { uploadUrl, key } = (await presignRes.json()) as {
+        uploadUrl: string;
+        key: string;
+        publicUrl: string;
+      };
+
+      const { error: r2Error } = await tryCatch(
+        uploadFileToR2(uploadUrl, file, file.type, setProgress),
+      );
+      if (r2Error) {
+        toast.error(r2Error instanceof Error ? r2Error.message : "Upload to storage failed.", {
+          position: "bottom-right",
+        });
+        setProgress(0);
+        return;
+      }
+
+      const { data: completeRes, error: completeNetworkError } = await tryCatch(
+        fetch("/api/upload/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key, filename: file.name, contentType: file.type, size: file.size }),
+        }),
+      );
+      if (completeNetworkError || !completeRes.ok) {
+        toast.error("Upload succeeded but failed to save record. Contact support.", {
+          position: "bottom-right",
+        });
+        return;
+      }
+
+      toast.success(`${file.name} uploaded successfully.`, { position: "bottom-right" });
       resetFile();
     });
   };
@@ -114,7 +171,7 @@ export default function FileUpload04() {
                   name="file-upload-03"
                   type="file"
                   className="sr-only"
-                  accept="audio/*,.mp3,.wav,.ogg,.webm,.m4a,.aac,.flac"
+                  accept=".mp3,.wav,audio/mpeg,audio/wav"
                   onChange={handleFileChange}
                   ref={fileInputRef}
                   disabled={isUploading}
@@ -126,7 +183,7 @@ export default function FileUpload04() {
         </div>
 
         <p className="text-pretty mt-2 text-xs leading-5 text-muted-foreground sm:flex sm:items-center sm:justify-between">
-          <span>Accepted file types: MP3, WAV, OGG, WEBM, M4A, AAC, FLAC.</span>
+          <span>Accepted file types: MP3, WAV.</span>
           <span className="pl-1 sm:pl-0">Max. size: 15MB</span>
         </p>
 
@@ -156,6 +213,13 @@ export default function FileUpload04() {
               </div>
             </div>
           </Card>
+        )}
+
+        {isUploading && (
+          <div className="mt-6 space-y-1.5">
+            <Progress value={progress} className="h-1.5" />
+            <p className="text-xs text-muted-foreground text-right">{progress}%</p>
+          </div>
         )}
 
         <div className="mt-8 flex flex-col-reverse items-stretch gap-3 border-t pt-6 sm:flex-row sm:justify-center">

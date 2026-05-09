@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { Context, Elysia } from "elysia";
+import { uploadRouter } from "@/routes/upload";
 
-export const app = new Elysia({ prefix: "/api" }).get("/", "Backend is running");
+export const app = new Elysia({ prefix: "/api" }).get("/", "Backend is running").use(uploadRouter);
 
 const betterAuthView = (context: Context) => {
   const BETTER_AUTH_ACCEPT_METHODS = ["POST", "GET"];
