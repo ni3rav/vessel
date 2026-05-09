@@ -41,7 +41,11 @@ ENV OUTPUT_DIR=/data/output \
     FFPROBE_PATH=ffprobe \
     HLS_SEGMENT_DURATION=6 \
     LOG_LEVEL=info \
-    SOURCE_BASE_URL="" \
+    R2_ACCOUNT_ID="" \
+    R2_ACCESS_KEY_ID="" \
+    R2_SECRET_ACCESS_KEY="" \
+    R2_BUCKET="" \
+    R2_PUBLIC_BASE_URL="" \
     NODE_ENV=production
 
 # Accept job payload via stdin

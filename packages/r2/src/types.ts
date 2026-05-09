@@ -19,3 +19,11 @@ export interface PresignedUploadResult {
   key: string;
   expiresAt: Date;
 }
+
+export interface DirectUploadOptions {
+  bucket: string;
+  key: string;
+  body: Uint8Array | string;
+  contentType?: string;
+  cacheControl?: string;
+}

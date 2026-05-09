@@ -6,7 +6,11 @@ export interface WorkerConfig {
   hlsSegmentDuration: number;
   logLevel: "debug" | "info" | "warn" | "error";
   bitratesKbps: readonly number[];
-  sourceBaseUrl: string;
+  r2AccountId: string;
+  r2AccessKeyId: string;
+  r2SecretAccessKey: string;
+  r2Bucket: string;
+  r2PublicBaseUrl: string;
 }
 
 function parseLogLevel(value: string | undefined): WorkerConfig["logLevel"] {
@@ -25,5 +29,10 @@ export const config: WorkerConfig = {
   hlsSegmentDuration: parseInt(process.env["HLS_SEGMENT_DURATION"] ?? "6", 10),
   logLevel: parseLogLevel(process.env["LOG_LEVEL"]),
   bitratesKbps: [64, 128, 192, 256] as const,
-  sourceBaseUrl: process.env["SOURCE_BASE_URL"] ?? "",
+  r2AccountId: process.env["R2_ACCOUNT_ID"] ?? "",
+  r2AccessKeyId: process.env["R2_ACCESS_KEY_ID"] ?? "",
+  r2SecretAccessKey: process.env["R2_SECRET_ACCESS_KEY"] ?? "",
+  r2Bucket: process.env["R2_BUCKET"] ?? "",
+  r2PublicBaseUrl:
+    process.env["R2_PUBLIC_BASE_URL"] ?? process.env["SOURCE_BASE_URL"] ?? "",
 };

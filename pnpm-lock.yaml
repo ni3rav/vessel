@@ -119,6 +119,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@vessel/r2':
+        specifier: workspace:*
+        version: link:../../packages/r2
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2

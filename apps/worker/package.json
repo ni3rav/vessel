@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm --filter @vessel/r2 build && tsc",
     "start": "node dist/index.js",
     "dev": "tsc --watch"
   },
@@ -13,6 +13,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "@vessel/r2": "workspace:*"
   }
 }

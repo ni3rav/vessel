@@ -8,9 +8,9 @@ export interface JobPayload {
 export interface BitrateVariant {
   bitrate: string;
   bitrateKbps: number;
-  outputDir: string;
-  playlist: string;
-  segments: string[];
+  outputDir: string; // R2 prefix for this variant
+  playlist: string; // R2 key
+  segments: string[]; // R2 keys
 }
 
 export interface ValidationResult {
@@ -26,9 +26,9 @@ export interface TranscodeResult {
   filename: string;
   userid: string;
   success: boolean;
-  outputDir: string;
+  outputDir: string; // Root R2 prefix for generated HLS outputs
   variants: BitrateVariant[];
-  masterPlaylist: string;
+  masterPlaylist: string; // R2 key
   durationSeconds: number;
   error?: string;
 }

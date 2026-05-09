@@ -1,7 +1,11 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { S3Client } from "@aws-sdk/client-s3";
-import type { PresignedUploadOptions, PresignedUploadResult } from "./types";
+import type {
+  DirectUploadOptions,
+  PresignedUploadOptions,
+  PresignedUploadResult,
+} from "./types";
 
 export async function getPresignedUploadUrl(
   client: S3Client,
@@ -23,4 +27,19 @@ export async function getPresignedUploadUrl(
     key,
     expiresAt: new Date(Date.now() + expiresIn * 1000),
   };
+}
+
+export async function uploadObject(
+  client: S3Client,
+  options: DirectUploadOptions,
+): Promise<void> {
+  const { bucket, key, body, contentType, cacheControl } = options;
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: body,
+    ...(contentType !== undefined && { ContentType: contentType }),
+    ...(cacheControl !== undefined && { CacheControl: cacheControl }),
+  });
+  await client.send(command);
 }
