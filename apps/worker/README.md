@@ -117,8 +117,11 @@ node dist/index.js
 ### Build
 
 ```bash
-docker build -t vessel-worker ./apps/worker
+docker build -f apps/worker/Dockerfile -t vessel-worker .
 ```
+
+Run this command from the repository root so workspace files like `packages/r2`
+and root `pnpm` manifests are available to Docker during build.
 
 ### Run
 
