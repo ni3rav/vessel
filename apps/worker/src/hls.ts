@@ -3,6 +3,7 @@ import { spawnFfmpeg } from "./ffmpeg";
 import {
   ensureDir,
   variantDir,
+  variantSegmentsDir,
   variantPlaylistPath,
   variantSegmentPattern,
   masterPlaylistPath,
@@ -18,10 +19,12 @@ export async function transcodeVariant(
   bitrateKbps: number,
 ): Promise<BitrateVariant> {
   const dirPath = variantDir(id, bitrateKbps);
+  const segmentsDirPath = variantSegmentsDir(id, bitrateKbps);
   const playlistPath = variantPlaylistPath(id, bitrateKbps);
   const segmentPattern = variantSegmentPattern(id, bitrateKbps);
 
   await ensureDir(dirPath);
+  await ensureDir(segmentsDirPath);
 
   logger.info("Transcoding variant", { id, bitrateKbps });
 
@@ -35,13 +38,14 @@ export async function transcodeVariant(
     "-hls_time", String(config.hlsSegmentDuration),
     "-hls_list_size", "0",
     "-hls_segment_filename", segmentPattern,
+    "-hls_base_url", "segments/",
     "-hls_flags", "independent_segments",
     "-hls_segment_type", "mpegts",
     "-f", "hls",
     playlistPath,
   ]);
 
-  const allFiles = await listFiles(dirPath);
+  const allFiles = await listFiles(segmentsDirPath);
   const segments = allFiles
     .filter((f) => f.endsWith(".ts"))
     .sort();
