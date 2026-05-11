@@ -28,7 +28,7 @@ I am thinking of working on it in two phases which are as follows.
         1. Update those DB rows to failed.
         2. Use the Azure SDK to delete the ACI container group associated with that jobId.
 
-#### TODO: I will add the flow diagram of whole pipeline here once I sketch it out.
+![pipeiline](vessel-pipeline.png)
 
 ---
 
