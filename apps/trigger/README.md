@@ -22,6 +22,13 @@ See `.env.example`:
 - `AZURE_CONTAINER_GROUP`
 - `AZURE_CONTAINER_NAME` (optional)
 - `PAYLOAD_ENV_VAR_NAME` (optional, default `JOB_PAYLOAD`)
+- `AZURE_IMAGE_REGISTRY_SERVER` (optional fallback)
+- `AZURE_IMAGE_REGISTRY_USERNAME` (optional fallback)
+- `AZURE_IMAGE_REGISTRY_PASSWORD` (optional fallback)
+
+If your ACI group uses private image registry credentials, ARM `GET` may hide
+the password. During `createOrUpdate`, set the fallback registry env vars above
+so the trigger can re-send valid credentials.
 
 ## Run Locally
 

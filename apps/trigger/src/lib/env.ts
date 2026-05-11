@@ -11,6 +11,9 @@ export interface TriggerEnv {
   containerGroup: string;
   containerName?: string;
   payloadEnvVarName: string;
+  registryServer?: string;
+  registryUsername?: string;
+  registryPassword?: string;
 }
 
 function getRequiredEnv(name: RequiredEnvKey): string {
@@ -29,5 +32,8 @@ export function getEnv(): TriggerEnv {
     containerGroup: getRequiredEnv("AZURE_CONTAINER_GROUP"),
     containerName: process.env["AZURE_CONTAINER_NAME"],
     payloadEnvVarName: process.env["PAYLOAD_ENV_VAR_NAME"] ?? "JOB_PAYLOAD",
+    registryServer: process.env["AZURE_IMAGE_REGISTRY_SERVER"],
+    registryUsername: process.env["AZURE_IMAGE_REGISTRY_USERNAME"],
+    registryPassword: process.env["AZURE_IMAGE_REGISTRY_PASSWORD"],
   };
 }

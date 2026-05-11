@@ -4,6 +4,41 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { getEnv } from "../lib/env";
 
 const TOKEN_HEADER = "x-trigger-token";
+interface WorkerJobPayload {
+  id: string;
+  key: string;
+  filename: string;
+  userid: string;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function parseWorkerJobPayload(payload: unknown): WorkerJobPayload | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const { id, key, filename, userid } = record;
+
+  if (
+    !isNonEmptyString(id) ||
+    !isNonEmptyString(key) ||
+    !isNonEmptyString(filename) ||
+    !isNonEmptyString(userid)
+  ) {
+    return null;
+  }
+
+  return {
+    id: id.trim(),
+    key: key.trim(),
+    filename: filename.trim(),
+    userid: userid.trim(),
+  };
+}
 
 function json(status: number, body: unknown): HttpResponseInit {
   return {
@@ -47,6 +82,66 @@ function pickContainerName(
   return containers.find((container) => container.name === requestedName)?.name;
 }
 
+function shouldIncludeDiagnostics(diagnostics: any): boolean {
+  const logAnalytics = diagnostics?.logAnalytics;
+  if (!logAnalytics) return false;
+
+  // Some GET responses omit/mask workspaceKey; sending partial diagnostics
+  // back to createOrUpdate fails payload serialization.
+  const hasWorkspaceId = isNonEmptyString(logAnalytics.workspaceId);
+  const hasWorkspaceKey = isNonEmptyString(logAnalytics.workspaceKey);
+  return hasWorkspaceId && hasWorkspaceKey;
+}
+
+function resolveImageRegistryCredentials(
+  existing: Array<{ server?: string; username?: string; password?: string; identity?: string }>
+    | undefined,
+  env: ReturnType<typeof getEnv>,
+): {
+  credentials?: Array<{ server?: string; username?: string; password?: string; identity?: string }>;
+  error?: string;
+} {
+  if (!existing || existing.length === 0) {
+    return {};
+  }
+
+  const resolved = existing.map((cred) => {
+    const hasPassword = isNonEmptyString(cred.password);
+    if (hasPassword) return cred;
+
+    const serverMatches =
+      !env.registryServer ||
+      !cred.server ||
+      env.registryServer.toLowerCase() === cred.server.toLowerCase();
+    const usernameMatches =
+      !env.registryUsername || !cred.username || env.registryUsername === cred.username;
+
+    if (env.registryPassword && serverMatches && usernameMatches) {
+      return {
+        ...cred,
+        server: cred.server ?? env.registryServer,
+        username: cred.username ?? env.registryUsername,
+        password: env.registryPassword,
+      };
+    }
+
+    return cred;
+  });
+
+  const stillMissingPassword = resolved.some(
+    (cred) => !cred.identity && !isNonEmptyString(cred.password),
+  );
+  if (stillMissingPassword) {
+    return {
+      error:
+        "Container group has imageRegistryCredentials with hidden/missing password from ARM GET. " +
+        "Set AZURE_IMAGE_REGISTRY_PASSWORD (and optionally AZURE_IMAGE_REGISTRY_SERVER / AZURE_IMAGE_REGISTRY_USERNAME) in local.settings.json.",
+    };
+  }
+
+  return { credentials: resolved };
+}
+
 export async function triggerWorker(
   request: HttpRequest,
   context: InvocationContext,
@@ -58,8 +153,18 @@ export async function triggerWorker(
       return json(401, { error: "Unauthorized" });
     }
 
-    // TODO: Replace this with strict backend payload schema validation.
-    const payload = await request.json();
+    const payload = parseWorkerJobPayload(await request.json());
+    if (!payload) {
+      return json(400, {
+        error: "Invalid payload.",
+        expected: {
+          id: "string",
+          key: "string",
+          filename: "string",
+          userid: "string",
+        },
+      });
+    }
     const payloadString = JSON.stringify(payload);
 
     const credential = new DefaultAzureCredential();
@@ -100,25 +205,56 @@ export async function triggerWorker(
       };
     });
 
+    const imageRegistry = resolveImageRegistryCredentials(group.imageRegistryCredentials, env);
+    if (imageRegistry.error) {
+      return json(500, { error: imageRegistry.error });
+    }
+
     const groupPayload: any = {
       location: group.location,
       osType: group.osType,
       restartPolicy: group.restartPolicy,
       containers: updatedContainers,
-      imageRegistryCredentials: group.imageRegistryCredentials,
-      ipAddress: group.ipAddress,
-      subnetIds: group.subnetIds,
-      diagnostics: group.diagnostics,
-      volumes: group.volumes,
-      identity: group.identity,
-      sku: group.sku,
-      dnsConfig: (group as any).dnsConfig,
-      zones: group.zones,
-      initContainers: (group as any).initContainers,
-      encryptionProperties: (group as any).encryptionProperties,
-      extensions: (group as any).extensions,
-      priority: (group as any).priority,
     };
+    if (imageRegistry.credentials) {
+      groupPayload.imageRegistryCredentials = imageRegistry.credentials;
+    }
+    if (group.ipAddress) {
+      groupPayload.ipAddress = group.ipAddress;
+    }
+    if (group.subnetIds) {
+      groupPayload.subnetIds = group.subnetIds;
+    }
+    if (group.volumes) {
+      groupPayload.volumes = group.volumes;
+    }
+    if (group.identity) {
+      groupPayload.identity = group.identity;
+    }
+    if (group.sku) {
+      groupPayload.sku = group.sku;
+    }
+    if ((group as any).dnsConfig) {
+      groupPayload.dnsConfig = (group as any).dnsConfig;
+    }
+    if (group.zones) {
+      groupPayload.zones = group.zones;
+    }
+    if ((group as any).initContainers) {
+      groupPayload.initContainers = (group as any).initContainers;
+    }
+    if ((group as any).encryptionProperties) {
+      groupPayload.encryptionProperties = (group as any).encryptionProperties;
+    }
+    if ((group as any).extensions) {
+      groupPayload.extensions = (group as any).extensions;
+    }
+    if ((group as any).priority) {
+      groupPayload.priority = (group as any).priority;
+    }
+    if (shouldIncludeDiagnostics(group.diagnostics)) {
+      groupPayload.diagnostics = group.diagnostics;
+    }
 
     await client.containerGroups.beginCreateOrUpdateAndWait(
       env.resourceGroup,
@@ -135,6 +271,7 @@ export async function triggerWorker(
 
     return json(202, {
       accepted: true,
+      jobId: payload.id,
       containerGroup: env.containerGroup,
       containerName: selectedContainerName,
       payloadEnvVarName: env.payloadEnvVarName,
