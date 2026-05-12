@@ -13,5 +13,7 @@ export const env = z
     R2_SECRET_ACCESS_KEY: z.string(),
     R2_BUCKET: z.string(),
     NEXT_PUBLIC_R2_PUBLIC_URL: z.string(),
+    TRIGGER_FUNCTION_URL: z.url(),
+    TRIGGER_SECRET: z.string(),
   })
   .parse(process.env);
