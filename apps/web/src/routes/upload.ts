@@ -4,15 +4,20 @@ import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { tryCatch } from "@/lib/try-catch";
 import { createR2Client, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
+import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
+import { z } from "zod";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav"];
 const ALLOWED_EXTENSIONS = [".mp3", ".wav"];
-const ERROR_DB_INSERT = "UPLOAD_DB_INSERT_FAILED";
-const ERROR_TRIGGER_CALL = "UPLOAD_TRIGGER_CALL_FAILED";
+const TRIGGER_RESPONSE_SCHEMA = z.object({
+  accepted: z.literal(true),
+  id: z.string().min(1),
+  status: z.literal("processing"),
+});
 
 function validateUpload(filename: string, contentType: string, size: number): string | null {
   const ext = `.${filename.split(".").pop()?.toLowerCase() ?? ""}`;
@@ -50,6 +55,20 @@ async function triggerProcessingJob(input: {
   if (!res.ok) {
     const responseText = await res.text();
     throw new Error(responseText || `Trigger function failed with HTTP ${res.status}`);
+  }
+
+  const { data: responseBody, error: responseReadError } = await tryCatch(res.json());
+  if (responseReadError) {
+    throw new Error("Trigger function returned invalid JSON response");
+  }
+
+  const parsed = TRIGGER_RESPONSE_SCHEMA.safeParse(responseBody);
+  if (!parsed.success) {
+    throw new Error("Trigger function response shape is invalid");
+  }
+
+  if (parsed.data.id !== input.id) {
+    throw new Error("Trigger function response id mismatch");
   }
 }
 
@@ -117,61 +136,63 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
     const jobSecretHash = createHash("sha256").update(jobSecret).digest("hex");
     const publicUrl = getPublicUrl(env.NEXT_PUBLIC_R2_PUBLIC_URL, key);
 
-    const { error: completeError } = await tryCatch(
+    const { error: dbInsertError } = await tryCatch(
       db.transaction(async (tx) => {
-        const { error: dbInsertError } = await tryCatch(
-          tx.insert(uploads).values({
-            id,
-            key,
-            filename,
-            contentType,
-            size,
-            publicUrl,
-            jobSecretHash,
-            status: "uploading",
-            userId: session.user.id,
-          })
-        );
-        if (dbInsertError) {
-          throw new Error(ERROR_DB_INSERT, { cause: dbInsertError });
-        }
-
-        const { error: triggerCallError } = await tryCatch(
-          triggerProcessingJob({
-            id,
-            key,
-            filename,
-            userId: session.user.id,
-            jobSecret,
-          })
-        );
-        if (triggerCallError) {
-          throw new Error(ERROR_TRIGGER_CALL, { cause: triggerCallError });
-        }
+        await tx.insert(uploads).values({
+          id,
+          key,
+          filename,
+          contentType,
+          size,
+          publicUrl,
+          jobSecretHash,
+          status: "uploading",
+          userId: session.user.id,
+        });
       })
     );
-    if (completeError) {
-      if (completeError instanceof Error && completeError.message === ERROR_DB_INSERT) {
-        console.error("[upload.complete] DB insert failed", {
+    if (dbInsertError) {
+      console.error("[upload.complete] DB insert failed", {
+        uploadId: id,
+        userId: session.user.id,
+        key,
+        error: dbInsertError,
+      });
+      return new Response("Failed to complete upload", { status: 500 });
+    }
+
+    const { error: triggerError } = await tryCatch(
+      triggerProcessingJob({
+        id,
+        key,
+        filename,
+        userId: session.user.id,
+        jobSecret,
+      })
+    );
+    if (triggerError) {
+      console.error("[upload.complete] Trigger function call failed", {
+        uploadId: id,
+        userId: session.user.id,
+        key,
+        triggerUrl: env.TRIGGER_FUNCTION_URL,
+        error: triggerError,
+      });
+
+      const { error: markFailedError } = await tryCatch(
+        db.transaction(async (tx) => {
+          await tx
+            .update(uploads)
+            .set({ status: "failed" })
+            .where(eq(uploads.id, id));
+        })
+      );
+      if (markFailedError) {
+        console.error("[upload.complete] Failed to mark upload as failed after trigger error", {
           uploadId: id,
           userId: session.user.id,
           key,
-          error: completeError.cause ?? completeError,
-        });
-      } else if (completeError instanceof Error && completeError.message === ERROR_TRIGGER_CALL) {
-        console.error("[upload.complete] Trigger function call failed", {
-          uploadId: id,
-          userId: session.user.id,
-          key,
-          triggerUrl: env.TRIGGER_FUNCTION_URL,
-          error: completeError.cause ?? completeError,
-        });
-      } else {
-        console.error("[upload.complete] Unexpected failure", {
-          uploadId: id,
-          userId: session.user.id,
-          key,
-          error: completeError,
+          error: markFailedError,
         });
       }
 

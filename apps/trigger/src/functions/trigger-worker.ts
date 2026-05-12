@@ -188,6 +188,7 @@ export async function triggerWorker(
   request: HttpRequest,
   context: InvocationContext,
 ): Promise<HttpResponseInit> {
+  let requestId: string | null = null;
   try {
     const env = getEnv();
     const token = request.headers.get(TOKEN_HEADER);
@@ -214,6 +215,7 @@ export async function triggerWorker(
         },
       });
     }
+    requestId = payload.id;
     const payloadString = JSON.stringify(payload);
 
     const credential = new DefaultAzureCredential();
@@ -223,6 +225,8 @@ export async function triggerWorker(
     const state = group.instanceView?.state;
     if (isActiveContainerGroupState(state)) {
       return json(409, {
+        id: payload.id,
+        status: "failed",
         error: "Duplicate trigger rejected; container group is already active.",
         state,
       });
@@ -230,11 +234,17 @@ export async function triggerWorker(
 
     const selectedContainerName = pickContainerName(env.containerName, group.containers);
     if (!selectedContainerName) {
-      return json(500, { error: "No container found in target container group." });
+      return json(500, {
+        id: payload.id,
+        status: "failed",
+        error: "No container found in target container group.",
+      });
     }
 
     if (env.containerName && selectedContainerName !== env.containerName) {
       return json(500, {
+        id: payload.id,
+        status: "failed",
         error: `Configured AZURE_CONTAINER_NAME '${env.containerName}' was not found.`,
       });
     }
@@ -256,7 +266,7 @@ export async function triggerWorker(
 
     const imageRegistry = resolveImageRegistryCredentials(group.imageRegistryCredentials, env);
     if (imageRegistry.error) {
-      return json(500, { error: imageRegistry.error });
+      return json(500, { id: payload.id, status: "failed", error: imageRegistry.error });
     }
 
     const groupPayload: any = {
@@ -332,6 +342,7 @@ export async function triggerWorker(
       accepted: true,
       id: payload.id,
       jobId: payload.id,
+      status: "processing",
       containerGroup: env.containerGroup,
       containerName: selectedContainerName,
       payloadEnvVarName: env.payloadEnvVarName,
@@ -340,6 +351,7 @@ export async function triggerWorker(
   } catch (error) {
     context.error("Failed to trigger worker", error);
     return json(500, {
+      ...(requestId ? { id: requestId, status: "failed" } : {}),
       error: "Failed to trigger worker container.",
       detail: String(error),
     });

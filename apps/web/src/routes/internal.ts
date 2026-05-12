@@ -9,7 +9,7 @@ import { z } from "zod";
 
 const TRIGGER_CALLBACK_SCHEMA = z.object({
   id: z.string().min(1),
-  status: z.literal("processing"),
+  status: z.enum(["processing", "failed"]),
   containerGroup: z.string().min(1),
   containerName: z.string().min(1),
   startedAt: z.iso.datetime(),
@@ -42,47 +42,54 @@ export const internalRouter = new Elysia({ prefix: "/internal" }).post(
     }
     const payload = parsed.data;
 
-    const { data: existingRows, error: selectError } = await tryCatch(
-      db
-        .select({
-          id: uploads.id,
-          jobSecretHash: uploads.jobSecretHash,
-        })
-        .from(uploads)
-        .where(eq(uploads.id, payload.id))
-        .limit(1)
-    );
-    if (selectError) {
-      console.error("[internal.trigger-callback] Failed to load upload record", {
-        id: payload.id,
-        error: selectError,
-      });
-      return new Response("Failed to process callback", { status: 500 });
-    }
-
-    const upload = existingRows[0];
-    if (!upload) {
-      return new Response("Upload not found", { status: 404 });
-    }
-    if (!upload.jobSecretHash) {
-      return new Response("Upload does not have job secret", { status: 409 });
-    }
-
     const incomingSecretHash = createHash("sha256").update(jobSecret).digest("hex");
-    if (incomingSecretHash !== upload.jobSecretHash) {
-      return new Response("Unauthorized", { status: 401 });
-    }
 
-    const { error: updateError } = await tryCatch(
-      db
-        .update(uploads)
-        .set({ status: payload.status })
-        .where(eq(uploads.id, payload.id))
+    const { error: callbackTxError } = await tryCatch(
+      db.transaction(async (tx) => {
+        const existingRows = await tx
+          .select({
+            id: uploads.id,
+            jobSecretHash: uploads.jobSecretHash,
+          })
+          .from(uploads)
+          .where(eq(uploads.id, payload.id))
+          .limit(1);
+
+        const upload = existingRows[0];
+        if (!upload) {
+          throw new Error("NOT_FOUND");
+        }
+        if (!upload.jobSecretHash) {
+          throw new Error("MISSING_JOB_SECRET_HASH");
+        }
+        if (incomingSecretHash !== upload.jobSecretHash) {
+          throw new Error("INVALID_JOB_SECRET");
+        }
+
+        await tx
+          .update(uploads)
+          .set({ status: payload.status })
+          .where(eq(uploads.id, payload.id));
+      })
     );
-    if (updateError) {
-      console.error("[internal.trigger-callback] Failed to update upload status", {
+    if (callbackTxError) {
+      if (callbackTxError instanceof Error && callbackTxError.message === "NOT_FOUND") {
+        return new Response("Upload not found", { status: 404 });
+      }
+      if (
+        callbackTxError instanceof Error &&
+        callbackTxError.message === "MISSING_JOB_SECRET_HASH"
+      ) {
+        return new Response("Upload does not have job secret", { status: 409 });
+      }
+      if (callbackTxError instanceof Error && callbackTxError.message === "INVALID_JOB_SECRET") {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      console.error("[internal.trigger-callback] Failed to process callback transaction", {
         id: payload.id,
-        error: updateError,
+        status: payload.status,
+        error: callbackTxError,
       });
       return new Response("Failed to process callback", { status: 500 });
     }
