@@ -15,5 +15,6 @@ export const env = z
     NEXT_PUBLIC_R2_PUBLIC_URL: z.string(),
     TRIGGER_FUNCTION_URL: z.url(),
     TRIGGER_SECRET: z.string(),
+    WORKER_SECRET: z.string(),
   })
   .parse(process.env);
