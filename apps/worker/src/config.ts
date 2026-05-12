@@ -11,6 +11,8 @@ export interface WorkerConfig {
   r2SecretAccessKey: string;
   r2Bucket: string;
   r2PublicBaseUrl: string;
+  workerCallbackUrl: string;
+  workerSecret: string;
 }
 
 function parseLogLevel(value: string | undefined): WorkerConfig["logLevel"] {
@@ -35,4 +37,6 @@ export const config: WorkerConfig = {
   r2Bucket: process.env["R2_BUCKET"] ?? "",
   r2PublicBaseUrl:
     process.env["R2_PUBLIC_BASE_URL"] ?? process.env["SOURCE_BASE_URL"] ?? "",
+  workerCallbackUrl: process.env["WORKER_CALLBACK_URL"] ?? "",
+  workerSecret: process.env["WORKER_SECRET"] ?? "",
 };

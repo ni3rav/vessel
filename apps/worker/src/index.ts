@@ -2,6 +2,7 @@ import "dotenv/config";
 import { killActiveProcesses } from "./ffmpeg";
 import { logger } from "./logger";
 import { processJob } from "./job";
+import { sendWorkerCallback } from "./callback";
 import type { JobPayload } from "./types";
 
 let shuttingDown = false;
@@ -68,11 +69,26 @@ async function main(): Promise<void> {
   }
 
   const result = await processJob(payload);
+  const callbackStatus = await (async () => {
+    const callback = await Promise.resolve(sendWorkerCallback(payload, result)).then(
+      () => ({ ok: true as const }),
+      (error) => ({ ok: false as const, error }),
+    );
+
+    if (!callback.ok) {
+      logger.error("Worker callback failed", {
+        id: payload.id,
+        error: String(callback.error),
+      });
+    }
+
+    return callback.ok;
+  })();
 
   // Write structured result to stdout as a single JSON line
   process.stdout.write(JSON.stringify(result) + "\n");
 
-  process.exit(result.success ? 0 : 1);
+  process.exit(result.success && callbackStatus ? 0 : 1);
 }
 
 main().catch((err) => {

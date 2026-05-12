@@ -13,9 +13,10 @@ AAC variants (64k / 128k / 192k / 256k) for adaptive bitrate streaming.
 4. Transcodes to 4 AAC/HLS bitrate variants with `ffmpeg`
 5. Generates a master HLS playlist
 6. Uploads all generated HLS files directly to R2
-7. Writes a JSON result to **stdout**
-8. Cleans up all local files
-9. Exits `0` on success, `1` on failure
+7. Sends callback to backend with `id` + `status` (`ready` or `failed`)
+8. Writes a JSON result to **stdout**
+9. Cleans up all local files
+10. Exits `0` on success, `1` on failure
 
 ---
 
@@ -81,12 +82,15 @@ echo '{
   "id": "test-001",
   "key": "uploads/user_abc/test-001.mp3",
   "filename": "test.mp3",
-  "userid": "user_abc"
+  "userid": "user_abc",
+  "jobSecret": "generated-per-job-secret"
 }' | R2_ACCOUNT_ID=... \
 R2_ACCESS_KEY_ID=... \
 R2_SECRET_ACCESS_KEY=... \
 R2_BUCKET=... \
 R2_PUBLIC_BASE_URL=https://dev-media.hivecms.online \
+WORKER_CALLBACK_URL=https://your-backend.example.com/api/internal/worker-callback \
+WORKER_SECRET=replace-with-worker-secret \
 node dist/index.js
 ```
 
@@ -108,6 +112,19 @@ node dist/index.js
   ],
   "masterPlaylist": "uploads/test-001/master.m3u8",
   "durationSeconds": 183.4
+}
+```
+
+### Callback body sent by worker
+
+```json
+{
+  "id": "test-001",
+  "status": "ready",
+  "outputDir": "uploads/test-001",
+  "masterPlaylist": "uploads/test-001/master.m3u8",
+  "durationSeconds": 183.4,
+  "error": null
 }
 ```
 
@@ -174,6 +191,8 @@ docker run --rm \
 | `R2_SECRET_ACCESS_KEY` | —              | R2 secret access key                            |
 | `R2_BUCKET`            | —              | Bucket name for source + output objects         |
 | `R2_PUBLIC_BASE_URL`   | —              | Public base URL used for source download by key |
+| `WORKER_CALLBACK_URL`  | —              | Backend endpoint for worker status callback      |
+| `WORKER_SECRET`        | —              | Shared secret sent as `x-worker-secret` header  |
 | `JOB_PAYLOAD`          | —              | JSON job payload (alternative to stdin)         |
 
 ---
