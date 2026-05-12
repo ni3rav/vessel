@@ -19,6 +19,7 @@ export const uploads = pgTable(
     contentType: text("content_type").notNull(),
     size: integer("size").notNull(),
     publicUrl: text("public_url").notNull(),
+    jobSecretHash: text("job_secret_hash"),
     status: uploadStatusEnum("status").notNull().default("uploading"),
     userId: text("user_id")
       .notNull()

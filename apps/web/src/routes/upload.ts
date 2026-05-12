@@ -89,7 +89,7 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
         contentType,
         size,
         publicUrl,
-        status: "processing",
+        status: "uploading",
         userId: session.user.id,
       })
     );
