@@ -147,7 +147,7 @@ async function notifyBackendProcessingStarted(input: {
   callbackUrl: string;
   triggerToken: string;
   jobSecret: string;
-  jobId: string;
+  id: string;
   containerGroup: string;
   containerName: string;
 }): Promise<void> {
@@ -163,7 +163,8 @@ async function notifyBackendProcessingStarted(input: {
         [JOB_SECRET_HEADER]: input.jobSecret,
       },
       body: JSON.stringify({
-        jobId: input.jobId,
+        id: input.id,
+        jobId: input.id,
         status: "processing",
         containerGroup: input.containerGroup,
         containerName: input.containerName,
@@ -315,7 +316,7 @@ export async function triggerWorker(
       callbackUrl: env.backendProcessingStartedUrl,
       triggerToken: env.triggerToken,
       jobSecret: normalizedJobSecret,
-      jobId: payload.id,
+      id: payload.id,
       containerGroup: env.containerGroup,
       containerName: selectedContainerName,
     });
@@ -329,6 +330,7 @@ export async function triggerWorker(
 
     return json(202, {
       accepted: true,
+      id: payload.id,
       jobId: payload.id,
       containerGroup: env.containerGroup,
       containerName: selectedContainerName,
