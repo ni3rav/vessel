@@ -216,7 +216,11 @@ export async function triggerWorker(
       });
     }
     requestId = payload.id;
-    const payloadString = JSON.stringify(payload);
+    const workerPayload = {
+      ...payload,
+      jobSecret: normalizedJobSecret,
+    };
+    const payloadString = JSON.stringify(workerPayload);
 
     const credential = new DefaultAzureCredential();
     const client = new ContainerInstanceManagementClient(credential, env.subscriptionId);

@@ -3,6 +3,7 @@ export interface JobPayload {
   key: string;
   filename: string;
   userid: string;
+  jobSecret: string;
 }
 
 export interface BitrateVariant {

@@ -50,11 +50,12 @@ uploads/{uuid}/
   "id": "01HXYZ1234ABCDEF",
   "key": "uploads/user_abc/01HXYZ1234ABCDEF.mp3",
   "filename": "my-podcast-episode.mp3",
-  "userid": "user_abc"
+  "userid": "user_abc",
+  "jobSecret": "generated-per-job-secret"
 }
 ```
 
-All four fields are mandatory. The worker treats payload `key` as the source-of-truth.
+All five fields are mandatory. The worker treats payload `key` as the source-of-truth.
 It derives `{uuid}` from the source key filename and uploads outputs to:
 `uploads/{uuid}/...`.
 

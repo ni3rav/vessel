@@ -55,8 +55,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!payload.id || !payload.key || !payload.filename || !payload.userid) {
-    logger.error("Job payload missing required fields: id, key, filename, userid");
+  if (!payload.id || !payload.key || !payload.filename || !payload.userid || !payload.jobSecret) {
+    logger.error("Job payload missing required fields: id, key, filename, userid, jobSecret");
     process.exit(1);
     return;
   }
