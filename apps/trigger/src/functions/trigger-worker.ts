@@ -4,6 +4,7 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { getEnv } from "../lib/env";
 
 const TOKEN_HEADER = "x-trigger-token";
+const JOB_SECRET_HEADER = "x-job-secret";
 interface WorkerJobPayload {
   id: string;
   key: string;
@@ -142,6 +143,46 @@ function resolveImageRegistryCredentials(
   return { credentials: resolved };
 }
 
+async function notifyBackendProcessingStarted(input: {
+  callbackUrl: string;
+  triggerToken: string;
+  jobSecret: string;
+  jobId: string;
+  containerGroup: string;
+  containerName: string;
+}): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const res = await fetch(input.callbackUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [TOKEN_HEADER]: input.triggerToken,
+        [JOB_SECRET_HEADER]: input.jobSecret,
+      },
+      body: JSON.stringify({
+        jobId: input.jobId,
+        status: "processing",
+        containerGroup: input.containerGroup,
+        containerName: input.containerName,
+        startedAt: new Date().toISOString(),
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const responseText = await res.text();
+      throw new Error(
+        `Backend callback failed with ${res.status}: ${responseText || "empty response body"}`,
+      );
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function triggerWorker(
   request: HttpRequest,
   context: InvocationContext,
@@ -152,6 +193,13 @@ export async function triggerWorker(
     if (!token || token !== env.triggerToken) {
       return json(401, { error: "Unauthorized" });
     }
+    const jobSecret = request.headers.get(JOB_SECRET_HEADER);
+    if (!isNonEmptyString(jobSecret)) {
+      return json(400, {
+        error: `Missing required header: ${JOB_SECRET_HEADER}`,
+      });
+    }
+    const normalizedJobSecret = jobSecret.trim();
 
     const payload = parseWorkerJobPayload(await request.json());
     if (!payload) {
@@ -263,10 +311,20 @@ export async function triggerWorker(
     );
     await client.containerGroups.beginStartAndWait(env.resourceGroup, env.containerGroup);
 
+    await notifyBackendProcessingStarted({
+      callbackUrl: env.backendProcessingStartedUrl,
+      triggerToken: env.triggerToken,
+      jobSecret: normalizedJobSecret,
+      jobId: payload.id,
+      containerGroup: env.containerGroup,
+      containerName: selectedContainerName,
+    });
+
     context.log("Worker trigger accepted", {
       containerGroup: env.containerGroup,
       containerName: selectedContainerName,
       payloadEnvVarName: env.payloadEnvVarName,
+      backendCallbackUrl: env.backendProcessingStartedUrl,
     });
 
     return json(202, {

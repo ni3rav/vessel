@@ -9,6 +9,7 @@
     "AZURE_CONTAINER_GROUP": "your-container-group",
     "AZURE_CONTAINER_NAME": "worker",
     "PAYLOAD_ENV_VAR_NAME": "JOB_PAYLOAD",
+    "TRIGGER_BACKEND_CALLBACK_URL": "https://your-backend.example.com/internal/jobs/started",
     "AZURE_IMAGE_REGISTRY_SERVER": "",
     "AZURE_IMAGE_REGISTRY_USERNAME": "",
     "AZURE_IMAGE_REGISTRY_PASSWORD": ""

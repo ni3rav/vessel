@@ -6,10 +6,12 @@ worker by injecting request payload into a container env var (default: `JOB_PAYL
 ## Behavior
 
 - Requires request header `x-trigger-token`
+- Requires request header `x-job-secret`
 - Accepts JSON body from backend (schema TODO in code)
 - Rejects duplicate active runs if target container group state is `Running`/`Pending`
 - Updates/adds payload env var on the target container
 - Starts the container group
+- Calls backend callback once when container start is successful
 - Returns `202 Accepted` on success
 
 ## Environment Variables
@@ -22,6 +24,7 @@ See `.env.example`:
 - `AZURE_CONTAINER_GROUP`
 - `AZURE_CONTAINER_NAME` (optional)
 - `PAYLOAD_ENV_VAR_NAME` (optional, default `JOB_PAYLOAD`)
+- `TRIGGER_BACKEND_CALLBACK_URL`
 - `AZURE_IMAGE_REGISTRY_SERVER` (optional fallback)
 - `AZURE_IMAGE_REGISTRY_USERNAME` (optional fallback)
 - `AZURE_IMAGE_REGISTRY_PASSWORD` (optional fallback)
@@ -64,6 +67,7 @@ pnpm --filter @vessel/trigger start
 curl -X POST "http://localhost:7071/api/trigger-worker" \
   -H "content-type: application/json" \
   -H "x-trigger-token: <your-secret>" \
+  -H "x-job-secret: <per-job-secret-from-backend>" \
   -d '{
     "id": "job_123",
     "key": "uploads/user_abc/job_123.mp3",
@@ -71,3 +75,19 @@ curl -X POST "http://localhost:7071/api/trigger-worker" \
     "userid": "user_abc"
   }'
 ```
+
+## Callback Behavior
+
+After ACI start succeeds, the function sends a single callback request to
+`TRIGGER_BACKEND_CALLBACK_URL` with:
+
+- Header `x-trigger-token` (same configured trigger token)
+- Header `x-job-secret` (forwarded from incoming request)
+- JSON body:
+  - `jobId`
+  - `status` = `processing`
+  - `containerGroup`
+  - `containerName`
+  - `startedAt`
+
+If callback fails (non-2xx or timeout), function returns failure.

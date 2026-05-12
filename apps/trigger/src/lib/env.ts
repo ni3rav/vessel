@@ -2,7 +2,8 @@ type RequiredEnvKey =
   | "TRIGGER_TOKEN"
   | "AZURE_SUBSCRIPTION_ID"
   | "AZURE_RESOURCE_GROUP"
-  | "AZURE_CONTAINER_GROUP";
+  | "AZURE_CONTAINER_GROUP"
+  | "TRIGGER_BACKEND_CALLBACK_URL";
 
 export interface TriggerEnv {
   triggerToken: string;
@@ -11,6 +12,7 @@ export interface TriggerEnv {
   containerGroup: string;
   containerName?: string;
   payloadEnvVarName: string;
+  backendProcessingStartedUrl: string;
   registryServer?: string;
   registryUsername?: string;
   registryPassword?: string;
@@ -32,6 +34,7 @@ export function getEnv(): TriggerEnv {
     containerGroup: getRequiredEnv("AZURE_CONTAINER_GROUP"),
     containerName: process.env["AZURE_CONTAINER_NAME"],
     payloadEnvVarName: process.env["PAYLOAD_ENV_VAR_NAME"] ?? "JOB_PAYLOAD",
+    backendProcessingStartedUrl: getRequiredEnv("TRIGGER_BACKEND_CALLBACK_URL"),
     registryServer: process.env["AZURE_IMAGE_REGISTRY_SERVER"],
     registryUsername: process.env["AZURE_IMAGE_REGISTRY_USERNAME"],
     registryPassword: process.env["AZURE_IMAGE_REGISTRY_PASSWORD"],
