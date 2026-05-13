@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { killActiveProcesses } from "./ffmpeg";
 import { logger } from "./logger";
 import { processJob } from "./job";

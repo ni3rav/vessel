@@ -144,9 +144,6 @@ importers:
       '@vessel/r2':
         specifier: workspace:*
         version: link:../../packages/r2
-      dotenv:
-        specifier: ^17.4.2
-        version: 17.4.2
     devDependencies:
       '@types/node':
         specifier: ^20.19.39
