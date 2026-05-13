@@ -57,20 +57,24 @@ function isActiveContainerGroupState(state: string | undefined): boolean {
   return normalized === "running" || normalized === "pending";
 }
 
-function withUpdatedPayloadEnv(
+function withUpsertedEnvVars(
   existing: Array<{ name?: string; value?: string; secureValue?: string }> | undefined,
-  name: string,
-  value: string,
+  overrides: Record<string, string>,
 ): Array<{ name: string; value?: string; secureValue?: string }> {
-  const vars = [...(existing ?? [])];
-  const idx = vars.findIndex((item) => item.name === name);
+  const vars = [...(existing ?? [])] as Array<{ name?: string; value?: string; secureValue?: string }>;
+  const byName = new Map<string, number>();
+  vars.forEach((item, index) => {
+    if (item.name) byName.set(item.name, index);
+  });
 
-  if (idx >= 0) {
-    vars[idx] = { name, value };
-    return vars as Array<{ name: string; value?: string; secureValue?: string }>;
+  for (const [name, value] of Object.entries(overrides)) {
+    const idx = byName.get(name);
+    if (idx !== undefined) {
+      vars[idx] = { name, value };
+    } else {
+      vars.push({ name, value });
+    }
   }
-
-  vars.push({ name, value });
   return vars as Array<{ name: string; value?: string; secureValue?: string }>;
 }
 
@@ -255,10 +259,12 @@ export async function triggerWorker(
 
     const updatedContainers = (group.containers ?? []).map((container) => {
       const plain = container as any;
-      const updatedEnv = withUpdatedPayloadEnv(
+      const updatedEnv = withUpsertedEnvVars(
         plain.environmentVariables,
-        env.payloadEnvVarName,
-        payloadString,
+        {
+          ...env.workerEnvOverrides,
+          [env.payloadEnvVarName]: payloadString,
+        },
       );
 
       return {
