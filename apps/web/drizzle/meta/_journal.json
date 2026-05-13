@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1778231260207,
-      "tag": "0000_worried_korath",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1778308919864,
-      "tag": "0001_secret_jane_foster",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1778562216157,
-      "tag": "0002_aromatic_iron_fist",
+      "when": 1778687063202,
+      "tag": "0000_long_lilandra",
       "breakpoints": true
     }
   ]
