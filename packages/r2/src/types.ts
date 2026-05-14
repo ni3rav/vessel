@@ -27,3 +27,23 @@ export interface DirectUploadOptions {
   contentType?: string;
   cacheControl?: string;
 }
+
+export interface DeleteObjectOptions {
+  bucket: string;
+  key: string;
+}
+
+export interface DeleteObjectsOptions {
+  bucket: string;
+  keys: string[];
+}
+
+export interface DeleteObjectResult {
+  key: string;
+  deleted: boolean;
+}
+
+export interface DeleteObjectsResult {
+  deletedKeys: string[];
+  failedKeys: Array<{ key: string; error: string }>;
+}
