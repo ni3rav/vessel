@@ -3,7 +3,7 @@ import { uploads } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { tryCatch } from "@/lib/try-catch";
-import { createR2Client, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
+import { createR2Client, deleteObject, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { nanoid } from "nanoid";
@@ -193,6 +193,33 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
           userId: session.user.id,
           key,
           error: markFailedError,
+        });
+      }
+
+      const { error: deleteError } = await tryCatch(
+        deleteObject(r2, {
+          bucket: env.R2_BUCKET,
+          key,
+        })
+      );
+      if (deleteError) {
+        console.error("[upload.complete] Failed to cleanup source object after trigger failure", {
+          uploadId: id,
+          userId: session.user.id,
+          key,
+          reason: "trigger_failed",
+          deleteAttempted: true,
+          deleteSucceeded: false,
+          error: deleteError,
+        });
+      } else {
+        console.info("[upload.complete] Cleaned up source object after trigger failure", {
+          uploadId: id,
+          userId: session.user.id,
+          key,
+          reason: "trigger_failed",
+          deleteAttempted: true,
+          deleteSucceeded: true,
         });
       }
 
