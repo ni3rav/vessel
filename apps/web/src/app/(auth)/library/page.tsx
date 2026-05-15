@@ -31,16 +31,7 @@ export default async function LibraryPage() {
   }));
 
   return (
-    <section className="w-full space-y-8 animate-in fade-in duration-300">
-      <header className="space-y-2">
-        <h1 className="font-heading text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-          Your library
-        </h1>
-        <p className="text-pretty text-sm text-muted-foreground sm:text-base">
-          Stream processed uploads as HLS when they are ready. Pending uploads stay here until processing finishes.
-        </p>
-      </header>
-
+    <section className="w-full min-h-[min(100dvh,56rem)]">
       <UploadLibrary uploads={serialized} r2PublicBaseUrl={env.NEXT_PUBLIC_R2_PUBLIC_URL} />
     </section>
   );

@@ -1,13 +1,15 @@
 "use client";
 
-import { FileAudio, X } from "lucide-react";
-import { ChangeEvent, DragEvent, useRef, useState, useTransition } from "react";
+import { FileAudio, Music2, X } from "lucide-react";
+import Link from "next/link";
+import type { ChangeEvent, DragEvent } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { tryCatch } from "@/lib/try-catch";
+import { cn } from "@/lib/utils";
 
 function uploadFileToR2(
   url: string,
@@ -35,7 +37,7 @@ const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav"];
 const ALLOWED_EXTENSIONS = [".mp3", ".wav"];
 
-export default function FileUpload04() {
+export default function UploadFlow() {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
   const [isUploading, startUploadTransition] = useTransition();
@@ -144,104 +146,123 @@ export default function FileUpload04() {
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
   };
 
   return (
-    <div className="flex items-center justify-center p-10 w-full max-w-lg">
-      <div className="w-full">
-        <h3 className="text-balance text-lg font-semibold text-foreground">Audio Upload</h3>
+    <section className="mx-auto w-full max-w-xl pb-8">
+      <p className="mb-6 font-heading text-xs font-semibold tracking-[0.22em] text-muted-foreground uppercase">
+        Upload
+      </p>
 
-        <div
-          className="flex justify-center rounded-md border mt-2 border-dashed border-input px-6 py-12"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={handleDrop}
-        >
-          <div>
-            <FileAudio className="mx-auto h-12 w-12 text-muted-foreground" aria-hidden={true} />
-            <div className="flex text-sm leading-6 text-muted-foreground">
-              <p>Drag and drop or</p>
-              <label
-                htmlFor="file-upload-03"
-                className="relative cursor-pointer rounded-sm pl-1 font-medium text-primary hover:underline hover:underline-offset-4"
-              >
-                <span>choose file</span>
-                <input
-                  id="file-upload-03"
-                  name="file-upload-03"
-                  type="file"
-                  className="sr-only"
-                  accept=".mp3,.wav,audio/mpeg,audio/wav"
-                  onChange={handleFileChange}
-                  ref={fileInputRef}
-                  disabled={isUploading}
-                />
-              </label>
-              <p className="text-pretty pl-1">to upload</p>
-            </div>
-          </div>
-        </div>
-
-        <p className="text-pretty mt-2 text-xs leading-5 text-muted-foreground sm:flex sm:items-center sm:justify-between">
-          <span>Accepted file types: MP3, WAV.</span>
-          <span className="pl-1 sm:pl-0">Max. size: 15MB</span>
+      <div className="space-y-3">
+        <h1 className="font-heading text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          Add music
+        </h1>
+        <p className="max-w-md text-pretty text-sm leading-relaxed text-muted-foreground">
+          Drop an MP3 or WAV file. After processing, it appears in{" "}
+          <Link
+            href="/library"
+            className="font-medium text-foreground underline-offset-4 transition-colors hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            Library
+          </Link>
+          .
         </p>
+      </div>
 
-        {file && (
-          <Card className="relative mt-8 bg-muted p-4 gap-4 shadow-none">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="absolute right-1 top-1 text-muted-foreground hover:text-foreground"
-              aria-label="Remove"
-              onClick={resetFile}
-              disabled={isUploading}
-            >
-              <X className="h-5 w-5 shrink-0" aria-hidden={true} />
-            </Button>
-
-            <div className="flex items-center space-x-2.5">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-background shadow-sm ring-1 ring-inset ring-border">
-                <FileAudio className="h-5 w-5 text-foreground" />
-              </span>
-              <div>
-                <p className="text-pretty text-xs font-medium text-foreground">{file?.name}</p>
-                <p className="text-pretty mt-0.5 text-xs text-muted-foreground">
-                  {file && formatFileSize(file.size)}
-                </p>
-              </div>
-            </div>
-          </Card>
+      <div
+        className={cn(
+          "relative mt-10 flex cursor-default justify-center rounded-[2rem] bg-linear-to-b from-muted/70 via-muted/45 to-muted/25 px-6 py-14 shadow-inner transition-colors duration-300 sm:py-16",
+          "outline-none focus-within:ring-2 focus-within:ring-ring/40",
         )}
-
-        {isUploading && (
-          <div className="mt-6 space-y-1.5">
-            <Progress value={progress} className="h-1.5" />
-            <p className="text-xs text-muted-foreground text-right">{progress}%</p>
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+      >
+        <div className="flex flex-col items-center text-center">
+          <div
+            aria-hidden
+            className="mb-5 flex size-16 items-center justify-center rounded-2xl bg-linear-to-br from-primary/18 to-muted/70 shadow-md shadow-foreground/8 sm:size-17"
+          >
+            <Music2 className="size-8 text-muted-foreground opacity-90 sm:size-9" />
           </div>
-        )}
-
-        <div className="mt-8 flex flex-col-reverse items-stretch gap-3 border-t pt-6 sm:flex-row sm:justify-center">
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full whitespace-nowrap sm:w-36"
-            onClick={resetFile}
-            disabled={!file || isUploading}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            className="w-full whitespace-nowrap sm:w-36"
-            disabled={!file || isUploading}
-            onClick={handleUpload}
-          >
-            {isUploading ? "Uploading..." : "Upload"}
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-x-1 gap-y-1 text-sm leading-relaxed text-muted-foreground">
+            <span>Drag and drop or</span>
+            <label
+              htmlFor="file-upload-drop"
+              className="cursor-pointer rounded-full px-1 font-medium text-primary transition-colors hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring/50"
+            >
+              <span className="underline-offset-4 hover:underline">choose file</span>
+              <input
+                id="file-upload-drop"
+                name="file-upload-drop"
+                type="file"
+                className="sr-only"
+                accept=".mp3,.wav,audio/mpeg,audio/wav"
+                onChange={handleFileChange}
+                ref={fileInputRef}
+                disabled={isUploading}
+              />
+            </label>
+          </div>
+          <p className="mt-3 max-w-xs text-pretty text-xs text-muted-foreground/90">
+            MP3 · WAV · max 15MB
+          </p>
         </div>
       </div>
-    </div>
+
+      {file ? (
+        <div className="relative mt-8 rounded-2xl bg-muted/65 px-4 py-4 sm:px-5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-2 right-2 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Remove file"
+            onClick={resetFile}
+            disabled={isUploading}
+          >
+            <X className="size-5 shrink-0" aria-hidden />
+          </Button>
+
+          <div className="flex items-center gap-3 pr-10">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-muted/90 to-muted/50 shadow-sm">
+              <FileAudio className="size-5 text-foreground/90" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isUploading ? (
+        <div className="mt-8 space-y-2">
+          <Progress value={progress} className="h-1.5 bg-muted/80" />
+          <p className="text-right text-xs tabular-nums text-muted-foreground">{progress}%</p>
+        </div>
+      ) : null}
+
+      <div className="mt-10 flex flex-col-reverse gap-3 sm:flex-row sm:justify-start sm:gap-4">
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-full rounded-full touch-manipulation sm:w-auto sm:min-w-36"
+          onClick={resetFile}
+          disabled={!file || isUploading}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          className="w-full rounded-full px-8 shadow-md shadow-foreground/10 touch-manipulation sm:w-auto sm:min-w-36"
+          disabled={!file || isUploading}
+          onClick={handleUpload}
+        >
+          {isUploading ? "Uploading…" : "Upload"}
+        </Button>
+      </div>
+    </section>
   );
 }

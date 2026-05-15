@@ -41,7 +41,7 @@ export default function RootLayout({
       )}
     >
       <body className="min-h-dvh bg-background text-foreground">
-        <main className="mx-auto flex min-h-dvh w-full max-w-7xl items-center justify-center px-4 py-8">
+        <main className="mx-auto flex min-h-dvh w-full max-w-7xl items-start justify-center px-4 py-8">
           {children}
         </main>
       </body>
