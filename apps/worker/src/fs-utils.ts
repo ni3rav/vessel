@@ -48,10 +48,6 @@ export function variantDir(audioId: string, bitrateKbps: number): string {
   return path.join(outputDir(audioId), `${bitrateKbps}k`);
 }
 
-export function variantSegmentsDir(audioId: string, bitrateKbps: number): string {
-  return path.join(variantDir(audioId, bitrateKbps), "segments");
-}
-
 export function masterPlaylistPath(audioId: string): string {
   return path.join(outputDir(audioId), "master.m3u8");
 }
@@ -61,7 +57,7 @@ export function variantPlaylistPath(audioId: string, bitrateKbps: number): strin
 }
 
 export function variantSegmentPattern(audioId: string, bitrateKbps: number): string {
-  return path.join(variantSegmentsDir(audioId, bitrateKbps), "segment_%03d.ts");
+  return path.join(variantDir(audioId, bitrateKbps), "segment_%03d.ts");
 }
 
 export function extractExt(filename: string): string {

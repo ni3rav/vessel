@@ -96,7 +96,7 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
 
     const ext = filename.split(".").pop()?.toLowerCase() ?? "";
     const uuid = crypto.randomUUID();
-    const key = `uploads/${session.user.id}/${uuid}.${ext}`;
+    const key = `uploads/${session.user.id}/${uuid}/${uuid}.${ext}`;
 
     const { data: presigned, error: presignError } = await tryCatch(
       getPresignedUploadUrl(r2, {

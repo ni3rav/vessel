@@ -1,6 +1,7 @@
 import { downloadFile } from "./download";
 import { validateAudioFile } from "./validate";
 import { transcodeVariant, generateMasterPlaylist } from "./hls";
+import { deriveOutputPrefixFromSourceKey } from "./key-utils";
 import { ensureDir, outputDir, tempDir, tempSourcePath, extractExt, removeDir } from "./fs-utils";
 import { logger } from "./logger";
 import { config } from "./config";
@@ -13,10 +14,11 @@ export async function processJob(payload: JobPayload): Promise<TranscodeResult> 
 
   logger.info("Job started", { id, filename, userid });
 
-  const sourceKey = key.replace(/^\//, "");
-  const sourceUuid = path.basename(sourceKey, path.extname(sourceKey)) || id;
-  const sourceParentPrefix = path.posix.dirname(sourceKey);
-  const outputPrefix = sourceParentPrefix === "." ? sourceKey : sourceParentPrefix;
+  const sourceKey = key.replace(/^\//, "").replace(/\\/g, "/");
+  const extFromKey = path.posix.extname(sourceKey);
+  const stemFromKey = path.posix.basename(sourceKey, extFromKey);
+  const sourceUuid = stemFromKey || id;
+  const outputPrefix = deriveOutputPrefixFromSourceKey(sourceKey);
   const downloadUrl = getPublicDownloadUrl(sourceKey);
   const ext = extractExt(filename);
   const sourcePath = tempSourcePath(sourceUuid, ext);
@@ -98,7 +100,7 @@ export async function processJob(payload: JobPayload): Promise<TranscodeResult> 
 
       const segmentKeys: string[] = [];
       for (const segmentPath of variant.segments) {
-        const segmentKey = `${variantPrefix}/segments/${path.basename(segmentPath)}`;
+        const segmentKey = `${variantPrefix}/${path.basename(segmentPath)}`;
         await uploadFileObject(segmentKey, segmentPath, "video/mp2t");
         logUploadProgress(segmentKey);
         segmentKeys.push(segmentKey);

@@ -22,25 +22,31 @@ AAC variants (64k / 128k / 192k / 256k) for adaptive bitrate streaming.
 
 ## R2 Output Structure
 
+Presigned uploads land at **`uploads/<user>/<audioId>/<audioId>.<ext>`**.
+
+The worker derives an **output prefix** from that source key (same as the directory holding the original file):
+
+- **Current layout**: `uploads/<user>/<audioId>/<audioId>.<ext>` → prefix `uploads/<user>/<audioId>/`
+- **Legacy layout**: `uploads/<user>/<audioId>.<ext>` → prefix `uploads/<user>/<audioId>/`
+
+Artifacts under that prefix:
+
 ```
-uploads/{uuid}/
+uploads/{user}/{audioId}/
+  {audioId}.mp3                     # Original (uploaded from the client / presign path)
   master.m3u8
   64k/
     playlist.m3u8
-    segments/segment_000.ts
-    segments/segment_001.ts
+    segment_000.ts
+    segment_001.ts
     ...
   128k/
     playlist.m3u8
-    segments/segment_000.ts
-    ...
-  192k/
-    playlist.m3u8
-    ...
-  256k/
-    playlist.m3u8
+    segment_000.ts
     ...
 ```
+
+Master playlist lines point at **`{bitrate}/playlist.m3u8`** relative to `{audioId}/`. Variant playlists reference segment filenames in the same folder (relative paths).
 
 ---
 
@@ -49,16 +55,14 @@ uploads/{uuid}/
 ```json
 {
   "id": "01HXYZ1234ABCDEF",
-  "key": "uploads/user_abc/01HXYZ1234ABCDEF.mp3",
+  "key": "uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3",
   "filename": "my-podcast-episode.mp3",
   "userid": "user_abc",
   "jobSecret": "generated-per-job-secret"
 }
 ```
 
-All five fields are mandatory. The worker treats payload `key` as the source-of-truth.
-It derives `{uuid}` from the source key filename and uploads outputs to:
-`uploads/{uuid}/...`.
+All five fields are mandatory. The worker treats payload `key` as the source-of-truth and resolves the HLS output prefix with `deriveOutputPrefixFromSourceKey` (see `src/key-utils.ts`).
 
 ---
 
@@ -80,7 +84,7 @@ pnpm build --filter @vessel/worker
 ```bash
 echo '{
   "id": "test-001",
-  "key": "uploads/user_abc/test-001.mp3",
+  "key": "uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3",
   "filename": "test.mp3",
   "userid": "user_abc",
   "jobSecret": "generated-per-job-secret"
@@ -99,18 +103,18 @@ node dist/index.js
 ```json
 {
   "id": "test-001",
-  "key": "uploads/user_abc/test-001.mp3",
+  "key": "uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3",
   "filename": "test.mp3",
   "userid": "user_abc",
   "success": true,
-  "outputDir": "uploads/test-001",
+  "outputDir": "uploads/user_abc/a1b2c3d4",
   "variants": [
     { "bitrate": "64k",  "bitrateKbps": 64,  "outputDir": "...", "playlist": "...", "segments": [...] },
     { "bitrate": "128k", "bitrateKbps": 128, "outputDir": "...", "playlist": "...", "segments": [...] },
     { "bitrate": "192k", "bitrateKbps": 192, "outputDir": "...", "playlist": "...", "segments": [...] },
     { "bitrate": "256k", "bitrateKbps": 256, "outputDir": "...", "playlist": "...", "segments": [...] }
   ],
-  "masterPlaylist": "uploads/test-001/master.m3u8",
+  "masterPlaylist": "uploads/user_abc/a1b2c3d4/master.m3u8",
   "durationSeconds": 183.4
 }
 ```
@@ -121,8 +125,8 @@ node dist/index.js
 {
   "id": "test-001",
   "status": "ready",
-  "outputDir": "uploads/test-001",
-  "masterPlaylist": "uploads/test-001/master.m3u8",
+  "outputDir": "uploads/user_abc/a1b2c3d4",
+  "masterPlaylist": "uploads/user_abc/a1b2c3d4/master.m3u8",
   "durationSeconds": 183.4,
   "error": null
 }
@@ -154,7 +158,7 @@ docker run --rm \
   vessel-worker <<'EOF'
 {
   "id": "test-001",
-  "key": "uploads/user_abc/test-001.mp3",
+  "key": "uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3",
   "filename": "test.mp3",
   "userid": "user_abc"
 }
@@ -170,7 +174,7 @@ docker run --rm \
   -e R2_SECRET_ACCESS_KEY=... \
   -e R2_BUCKET=... \
   -e R2_PUBLIC_BASE_URL=https://dev-media.hivecms.online \
-  -e JOB_PAYLOAD='{"id":"test-001","key":"uploads/user_abc/test-001.mp3","filename":"test.mp3","userid":"user_abc"}' \
+  -e JOB_PAYLOAD='{"id":"test-001","key":"uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3","filename":"test.mp3","userid":"user_abc"}' \
   vessel-worker
 ```
 
@@ -208,4 +212,4 @@ The source is validated with `ffprobe` before transcoding begins.
 
 - Source download uses payload `key` and `R2_PUBLIC_BASE_URL`
 - Output upload overwrites existing objects with the same key
-- Uploaded layout is `uploads/{uuid}/{bitrate}/...` with master at `uploads/{uuid}/master.m3u8`
+- HLS uploads use **`{outputPrefix}/master.m3u8`**, **`{outputPrefix}/{bitrate}k/playlist.m3u8`**, and **`{outputPrefix}/{bitrate}k/segment_*.ts`** (segments sit next to the variant playlist).
