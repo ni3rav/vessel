@@ -29,9 +29,11 @@ export default async function LibraryPage() {
     publicUrl: r.publicUrl,
     createdAt: r.createdAt.toISOString(),
   }));
+  const hasPendingUploads = serialized.some((r) => r.status === "uploading" || r.status === "processing");
 
   return (
     <section className="w-full min-h-[min(100dvh,56rem)]">
+      {hasPendingUploads ? <meta httpEquiv="refresh" content="7" /> : null}
       <UploadLibrary uploads={serialized} r2PublicBaseUrl={env.NEXT_PUBLIC_R2_PUBLIC_URL} />
     </section>
   );

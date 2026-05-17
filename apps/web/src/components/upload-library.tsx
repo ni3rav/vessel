@@ -3,7 +3,7 @@
 import { CircleAlert, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { HlsAudioPlayer } from "@/components/hls-audio-player";
 import { Button } from "@/components/ui/button";
@@ -73,16 +73,7 @@ function LibraryTrackRow({
 
 export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState(() => uploads[0]?.id ?? "");
-
-  useEffect(() => {
-    startTransition(() => {
-      setSelectedId((prev) => {
-        if (prev && uploads.some((u) => u.id === prev)) return prev;
-        return uploads[0]?.id ?? "";
-      });
-    });
-  }, [uploads]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const pending = useMemo(
     () => uploads.filter((u) => u.status === "uploading" || u.status === "processing"),
@@ -144,7 +135,7 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
                 {selected.status === "uploading" ? "Finishing upload" : "Processing"}
               </p>
               <p className="text-pretty text-sm text-muted-foreground">
-                This usually finishes quickly. Refresh when you want to check status.
+                This usually finishes quickly. Status updates automatically every 7 seconds.
               </p>
               <Button
                 type="button"
