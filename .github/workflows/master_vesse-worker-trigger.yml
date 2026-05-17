@@ -70,6 +70,13 @@ jobs:
             --name "${{ env.FUNCTION_APP_NAME }}" \
             --resource-group hive-rg \
             --src "${{ env.DEPLOY_ZIP_PATH }}"
-          az functionapp sync-function-triggers \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group hive-rg
+          if az functionapp sync-functions -h >/dev/null 2>&1; then
+            az functionapp sync-functions \
+              --name "${{ env.FUNCTION_APP_NAME }}" \
+              --resource-group hive-rg
+          else
+            SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+            az rest \
+              --method post \
+              --uri "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/hive-rg/providers/Microsoft.Web/sites/${{ env.FUNCTION_APP_NAME }}/syncfunctiontriggers?api-version=2023-12-01"
+          fi
