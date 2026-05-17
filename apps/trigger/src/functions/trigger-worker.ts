@@ -235,7 +235,7 @@ export async function triggerWorker(
       return json(409, {
         id: payload.id,
         status: "failed",
-        error: "Duplicate trigger rejected; container group is already active.",
+        error: "Rejected duplicate trigger; container group is already active.",
         state,
       });
     }
