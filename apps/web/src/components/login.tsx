@@ -38,8 +38,13 @@ export function Login() {
   };
 
   return (
-    <section className="w-full max-w-sm">
-      <div className="space-y-4">
+    <section className="w-full max-w-md">
+      <div className="rounded-2xl border border-border/80 bg-linear-to-b from-background to-muted/30 px-6 py-8 shadow-sm sm:px-8 sm:py-10">
+        <div className="mb-8 space-y-2 text-center">
+          <p className="font-heading text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">Welcome</p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Sign in to Vessel</h1>
+          <p className="text-sm text-muted-foreground">Continue with Google to access upload and library.</p>
+        </div>
         <form action={signInWithGoogle}>
           <GoogleSignInButton />
         </form>

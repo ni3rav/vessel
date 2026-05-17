@@ -2,6 +2,7 @@
 
 import { FileAudio, Music2, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { ChangeEvent, DragEvent } from "react";
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav"];
 const ALLOWED_EXTENSIONS = [".mp3", ".wav"];
 
 export default function UploadFlow() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
   const [isUploading, startUploadTransition] = useTransition();
@@ -86,6 +88,7 @@ export default function UploadFlow() {
     if (!file) return;
 
     startUploadTransition(async () => {
+      const uploadToastId = toast.loading("Preparing upload...");
       setProgress(0);
 
       const { data: presignRes, error: presignNetworkError } = await tryCatch(
@@ -96,14 +99,15 @@ export default function UploadFlow() {
         }),
       );
       if (presignNetworkError) {
-        toast.error("Network error — could not reach server.", { position: "bottom-right" });
+        toast.error("Could not reach server.", { id: uploadToastId });
         return;
       }
       if (!presignRes.ok) {
         const msg = presignRes.status === 401 ? "Not authenticated." : await presignRes.text();
-        toast.error(msg, { position: "bottom-right" });
+        toast.error(msg || "Could not prepare upload.", { id: uploadToastId });
         return;
       }
+      toast.loading("Uploading file...", { id: uploadToastId });
 
       const { uploadUrl, key } = (await presignRes.json()) as {
         uploadUrl: string;
@@ -115,12 +119,11 @@ export default function UploadFlow() {
         uploadFileToR2(uploadUrl, file, file.type, setProgress),
       );
       if (r2Error) {
-        toast.error(r2Error instanceof Error ? r2Error.message : "Upload to storage failed.", {
-          position: "bottom-right",
-        });
+        toast.error(r2Error instanceof Error ? r2Error.message : "Upload to storage failed.", { id: uploadToastId });
         setProgress(0);
         return;
       }
+      toast.loading("Finalizing upload...", { id: uploadToastId });
 
       const { data: completeRes, error: completeNetworkError } = await tryCatch(
         fetch("/api/upload/complete", {
@@ -130,14 +133,13 @@ export default function UploadFlow() {
         }),
       );
       if (completeNetworkError || !completeRes.ok) {
-        toast.error("Upload succeeded but failed to save record. Contact support.", {
-          position: "bottom-right",
-        });
+        toast.error("File uploaded, but finalizing failed. Please try again.", { id: uploadToastId });
         return;
       }
 
-      toast.success(`${file.name} uploaded successfully.`, { position: "bottom-right" });
+      toast.success(`${file.name} uploaded. Opening library...`, { id: uploadToastId });
       resetFile();
+      router.push("/library");
     });
   };
 
