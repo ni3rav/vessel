@@ -72,6 +72,56 @@ async function triggerProcessingJob(input: {
   }
 }
 
+async function handleTriggerFailure(input: {
+  id: string;
+  userId: string;
+  key: string;
+}): Promise<void> {
+  const { error: markFailedError } = await tryCatch(
+    db.transaction(async (tx) => {
+      await tx
+        .update(uploads)
+        .set({ status: "failed" })
+        .where(eq(uploads.id, input.id));
+    })
+  );
+  if (markFailedError) {
+    console.error("[upload.complete] Failed to mark upload as failed after trigger error", {
+      uploadId: input.id,
+      userId: input.userId,
+      key: input.key,
+      error: markFailedError,
+    });
+  }
+
+  const { error: deleteError } = await tryCatch(
+    deleteObject(r2, {
+      bucket: env.R2_BUCKET,
+      key: input.key,
+    })
+  );
+  if (deleteError) {
+    console.error("[upload.complete] Failed to cleanup source object after trigger failure", {
+      uploadId: input.id,
+      userId: input.userId,
+      key: input.key,
+      reason: "trigger_failed",
+      deleteAttempted: true,
+      deleteSucceeded: false,
+      error: deleteError,
+    });
+  } else {
+    console.info("[upload.complete] Cleaned up source object after trigger failure", {
+      uploadId: input.id,
+      userId: input.userId,
+      key: input.key,
+      reason: "trigger_failed",
+      deleteAttempted: true,
+      deleteSucceeded: true,
+    });
+  }
+}
+
 const r2 = createR2Client({
   accountId: env.R2_ACCOUNT_ID,
   accessKeyId: env.R2_ACCESS_KEY_ID,
@@ -146,7 +196,7 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
           size,
           publicUrl,
           jobSecretHash,
-          status: "uploading",
+          status: "processing",
           userId: session.user.id,
         });
       })
@@ -161,16 +211,13 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
       return new Response("Failed to complete upload", { status: 500 });
     }
 
-    const { error: triggerError } = await tryCatch(
-      triggerProcessingJob({
-        id,
-        key,
-        filename,
-        userId: session.user.id,
-        jobSecret,
-      })
-    );
-    if (triggerError) {
+    void triggerProcessingJob({
+      id,
+      key,
+      filename,
+      userId: session.user.id,
+      jobSecret,
+    }).catch(async (triggerError) => {
       console.error("[upload.complete] Trigger function call failed", {
         uploadId: id,
         userId: session.user.id,
@@ -178,53 +225,8 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
         triggerUrl: env.TRIGGER_FUNCTION_URL,
         error: triggerError,
       });
-
-      const { error: markFailedError } = await tryCatch(
-        db.transaction(async (tx) => {
-          await tx
-            .update(uploads)
-            .set({ status: "failed" })
-            .where(eq(uploads.id, id));
-        })
-      );
-      if (markFailedError) {
-        console.error("[upload.complete] Failed to mark upload as failed after trigger error", {
-          uploadId: id,
-          userId: session.user.id,
-          key,
-          error: markFailedError,
-        });
-      }
-
-      const { error: deleteError } = await tryCatch(
-        deleteObject(r2, {
-          bucket: env.R2_BUCKET,
-          key,
-        })
-      );
-      if (deleteError) {
-        console.error("[upload.complete] Failed to cleanup source object after trigger failure", {
-          uploadId: id,
-          userId: session.user.id,
-          key,
-          reason: "trigger_failed",
-          deleteAttempted: true,
-          deleteSucceeded: false,
-          error: deleteError,
-        });
-      } else {
-        console.info("[upload.complete] Cleaned up source object after trigger failure", {
-          uploadId: id,
-          userId: session.user.id,
-          key,
-          reason: "trigger_failed",
-          deleteAttempted: true,
-          deleteSucceeded: true,
-        });
-      }
-
-      return new Response("Failed to complete upload", { status: 500 });
-    }
+      await handleTriggerFailure({ id, userId: session.user.id, key });
+    });
 
     return { id, publicUrl };
   });
