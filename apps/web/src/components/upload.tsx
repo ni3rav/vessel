@@ -136,10 +136,11 @@ export default function UploadFlow() {
         toast.error("File uploaded, but finalizing failed. Please try again.", { id: uploadToastId });
         return;
       }
+      const completeData = (await completeRes.json()) as { id: string; publicUrl: string };
 
       toast.success(`${file.name} uploaded. Opening library...`, { id: uploadToastId });
       resetFile();
-      router.push("/library");
+      router.push(`/library?uploadId=${encodeURIComponent(completeData.id)}`);
     });
   };
 
@@ -175,7 +176,7 @@ export default function UploadFlow() {
 
       <div
         className={cn(
-          "relative mt-10 flex cursor-default justify-center rounded-[2rem] bg-linear-to-b from-muted/70 via-muted/45 to-muted/25 px-6 py-14 shadow-inner transition-colors duration-300 sm:py-16",
+          "relative mt-10 flex cursor-default justify-center rounded-[2rem] bg-linear-to-b from-muted/70 via-muted/45 to-muted/25 px-6 py-14 transition-colors duration-300 sm:py-16",
           "outline-none focus-within:ring-2 focus-within:ring-ring/40",
         )}
         onDragOver={(e) => e.preventDefault()}
@@ -184,7 +185,7 @@ export default function UploadFlow() {
         <div className="flex flex-col items-center text-center">
           <div
             aria-hidden
-            className="mb-5 flex size-16 items-center justify-center rounded-2xl bg-linear-to-br from-primary/18 to-muted/70 shadow-md shadow-foreground/8 sm:size-17"
+            className="mb-5 flex size-16 items-center justify-center rounded-2xl bg-linear-to-br from-primary/18 to-muted/70 sm:size-17"
           >
             <Music2 className="size-8 text-muted-foreground opacity-90 sm:size-9" />
           </div>
@@ -228,7 +229,7 @@ export default function UploadFlow() {
           </Button>
 
           <div className="flex items-center gap-3 pr-10">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-muted/90 to-muted/50 shadow-sm">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-muted/90 to-muted/50">
               <FileAudio className="size-5 text-foreground/90" aria-hidden />
             </span>
             <div className="min-w-0 flex-1">
@@ -258,7 +259,7 @@ export default function UploadFlow() {
         </Button>
         <Button
           type="button"
-          className="w-full rounded-full px-8 shadow-md shadow-foreground/10 touch-manipulation sm:w-auto sm:min-w-36"
+          className="w-full rounded-full px-8 touch-manipulation sm:w-auto sm:min-w-36"
           disabled={!file || isUploading}
           onClick={handleUpload}
         >

@@ -5,8 +5,13 @@ import { env } from "@/lib/env";
 import { requireSession } from "@/lib/auth-guard";
 import { desc, eq } from "drizzle-orm";
 
-export default async function LibraryPage() {
+export default async function LibraryPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requireSession();
+  const params = await searchParams;
 
   const rows = await db
     .select({
@@ -29,12 +34,24 @@ export default async function LibraryPage() {
     publicUrl: r.publicUrl,
     createdAt: r.createdAt.toISOString(),
   }));
-  const hasPendingUploads = serialized.some((r) => r.status === "uploading" || r.status === "processing");
+  const selectedParam = params.selected;
+  const uploadIdParam = params.uploadId;
+  const selectedFromQuery = Array.isArray(selectedParam) ? selectedParam[0] : selectedParam;
+  const uploadIdFromQuery = Array.isArray(uploadIdParam) ? uploadIdParam[0] : uploadIdParam;
+  const initialSelectedId =
+    selectedFromQuery && serialized.some((r) => r.id === selectedFromQuery)
+      ? selectedFromQuery
+      : uploadIdFromQuery && serialized.some((r) => r.id === uploadIdFromQuery)
+        ? uploadIdFromQuery
+        : serialized[0]?.id;
 
   return (
     <section className="w-full min-h-[min(100dvh,56rem)]">
-      {hasPendingUploads ? <meta httpEquiv="refresh" content="7" /> : null}
-      <UploadLibrary uploads={serialized} r2PublicBaseUrl={env.NEXT_PUBLIC_R2_PUBLIC_URL} />
+      <UploadLibrary
+        uploads={serialized}
+        r2PublicBaseUrl={env.NEXT_PUBLIC_R2_PUBLIC_URL}
+        initialSelectedId={initialSelectedId}
+      />
     </section>
   );
 }

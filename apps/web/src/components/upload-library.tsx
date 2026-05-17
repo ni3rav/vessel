@@ -2,8 +2,8 @@
 
 import { CircleAlert, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import { HlsAudioPlayer } from "@/components/hls-audio-player";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ export type LibraryUploadRow = {
 type Props = {
   uploads: LibraryUploadRow[];
   r2PublicBaseUrl: string;
+  initialSelectedId?: string;
 };
 
 function formatCreatedAt(iso: string) {
@@ -71,9 +72,11 @@ function LibraryTrackRow({
   );
 }
 
-export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
+export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: Props) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
 
   const pending = useMemo(
     () => uploads.filter((u) => u.status === "uploading" || u.status === "processing"),
@@ -89,6 +92,16 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
     if (failed.length && pending.length === 0 && ready.length === 0) values.push("failed");
     return values;
   }, [pending.length, ready.length, failed.length]);
+
+  useEffect(() => {
+    if (pending.length === 0) return;
+    const timer = window.setInterval(() => {
+      router.refresh();
+    }, 7000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [pending.length, router]);
 
   if (uploads.length === 0) {
     return (
@@ -107,6 +120,12 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
   }
 
   const selected = uploads.find((u) => u.id === selectedId) ?? uploads[0];
+  const handleSelect = (id: string) => {
+    setSelectedId(id);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("selected", id);
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  };
 
   const masterKey = deriveHlsMasterKeyFromUploadKey(selected.key);
   const hlsUrl =
@@ -204,8 +223,8 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
                       <LibraryTrackRow
                         key={u.id}
                         upload={u}
-                        active={u.id === selectedId}
-                        onSelect={() => setSelectedId(u.id)}
+                        active={u.id === selected.id}
+                        onSelect={() => handleSelect(u.id)}
                       />
                     ))}
                   </ul>
@@ -229,8 +248,8 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
                       <LibraryTrackRow
                         key={u.id}
                         upload={u}
-                        active={u.id === selectedId}
-                        onSelect={() => setSelectedId(u.id)}
+                        active={u.id === selected.id}
+                        onSelect={() => handleSelect(u.id)}
                       />
                     ))}
                   </ul>
@@ -265,8 +284,8 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl }: Props) {
                       <LibraryTrackRow
                         key={u.id}
                         upload={u}
-                        active={u.id === selectedId}
-                        onSelect={() => setSelectedId(u.id)}
+                        active={u.id === selected.id}
+                        onSelect={() => handleSelect(u.id)}
                       />
                     ))}
                   </ul>
