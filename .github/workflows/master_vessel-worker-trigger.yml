@@ -37,16 +37,16 @@ jobs:
         run: npm install -g pnpm@10.33.0
 
       - name: Verify pnpm version
-        run: pnpm --version
+        run: npx pnpm@10.33.0 --version
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npx pnpm@10.33.0 install --frozen-lockfile
 
       - name: Typecheck trigger
-        run: pnpm --filter @vessel/trigger typecheck
+        run: npx pnpm@10.33.0 --filter @vessel/trigger typecheck
 
       - name: Build trigger (and workspace deps)
-        run: pnpm --filter @vessel/trigger build
+        run: npx pnpm@10.33.0 --filter @vessel/trigger build
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
