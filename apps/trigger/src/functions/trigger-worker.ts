@@ -356,6 +356,7 @@ export async function triggerWorker(
       containerGroup: env.containerGroup,
       containerName: selectedContainerName,
       payloadEnvVarName: env.payloadEnvVarName,
+      fileKey:payload.key,
       message: "Container start requested.",
     });
   } catch (error) {
