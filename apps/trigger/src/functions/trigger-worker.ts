@@ -210,7 +210,7 @@ export async function triggerWorker(
     const payload = parseWorkerJobPayload(await request.json());
     if (!payload) {
       return json(400, {
-        error: "Invalid payload.",
+        error: "Invalid payload schema.",
         expected: {
           id: "string",
           key: "string",
