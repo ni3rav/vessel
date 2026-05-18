@@ -13,6 +13,7 @@
   "dependencies": {
     "@elysia/eden": "^1.4.10",
     "@sinclair/typebox": "^0.34.49",
+    "@vessel/database": "workspace:*",
     "@vessel/r2": "workspace:*",
     "better-auth": "^1.6.9",
     "class-variance-authority": "^0.7.1",
