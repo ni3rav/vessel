@@ -1,0 +1,22 @@
+{
+  "name": "@vessel/database",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@vessel/typescript-config": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}
