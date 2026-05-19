@@ -230,9 +230,7 @@ async function startJobExecution(input: {
     method: "POST",
     accessToken: input.accessToken,
     url,
-    body: {
-      template: input.template,
-    },
+    body: input.template,
   });
 
   return response.name;
