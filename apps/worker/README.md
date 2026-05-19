@@ -182,6 +182,12 @@ docker run --rm \
 
 ## Environment Variables
 
+For cloud runs, use this split:
+
+- Static container config (set on ACI/ACA Job template): `R2_*`, `WORKER_CALLBACK_URL`,
+  `WORKER_SECRET`, ffmpeg/hls/log tuning vars.
+- Per-job runtime input (injected by trigger): `JOB_PAYLOAD`.
+
 | Variable               | Default        | Description                                     |
 | ---------------------- | -------------- | ----------------------------------------------- |
 | `OUTPUT_DIR`           | `/data/output` | Local transient output directory                |

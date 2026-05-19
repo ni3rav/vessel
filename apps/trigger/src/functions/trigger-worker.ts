@@ -262,7 +262,6 @@ export async function triggerWorker(
       const updatedEnv = withUpsertedEnvVars(
         plain.environmentVariables,
         {
-          ...env.workerEnvOverrides,
           [env.payloadEnvVarName]: payloadString,
         },
       );
