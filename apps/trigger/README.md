@@ -1,16 +1,16 @@
 # @vessel/trigger
 
-HTTP-triggered Azure Function (Node.js v4) that starts an Azure Container Instance
-worker by injecting request payload into a container env var (default: `JOB_PAYLOAD`).
+HTTP-triggered Azure Function (Node.js v4) that starts an Azure Container Apps
+Job execution by injecting request payload into an env var (default: `JOB_PAYLOAD`).
 
 ## Behavior
 
 - Requires request header `x-trigger-token`
 - Requires request header `x-job-secret`
 - Accepts JSON body from backend (schema TODO in code)
-- Rejects duplicate active runs if target container group state is `Running`/`Pending`
-- Updates/adds payload env var on the target container (`JOB_PAYLOAD` by default)
-- Starts the container group
+- Rejects triggers when active execution count reaches `AZURE_MAX_ACTIVE_EXECUTIONS`
+- Updates/adds payload env var on the target job container (`JOB_PAYLOAD` by default)
+- Starts a new Container Apps Job execution
 - Calls backend callback once when container start is successful
 - Returns `202 Accepted` on success
 
@@ -21,21 +21,15 @@ See `.env.example`:
 - `TRIGGER_TOKEN`
 - `AZURE_SUBSCRIPTION_ID`
 - `AZURE_RESOURCE_GROUP`
-- `AZURE_CONTAINER_GROUP`
-- `AZURE_CONTAINER_NAME` (optional)
+- `AZURE_CONTAINERAPPS_JOB_NAME`
+- `AZURE_CONTAINERAPPS_JOB_CONTAINER_NAME` (optional)
 - `PAYLOAD_ENV_VAR_NAME` (optional, default `JOB_PAYLOAD`)
+- `AZURE_MAX_ACTIVE_EXECUTIONS` (optional, default `5`)
 - `TRIGGER_BACKEND_CALLBACK_URL`
-- `AZURE_IMAGE_REGISTRY_SERVER` (optional fallback)
-- `AZURE_IMAGE_REGISTRY_USERNAME` (optional fallback)
-- `AZURE_IMAGE_REGISTRY_PASSWORD` (optional fallback)
 
 Worker runtime env vars (`R2_*`, callback secrets, ffmpeg config, etc.) should be
-configured directly on the container definition (ACI or ACA Job template) as static
-env vars/secrets. Trigger should inject only per-job dynamic data (`JOB_PAYLOAD`).
-
-If your ACI group uses private image registry credentials, ARM `GET` may hide
-the password. During `createOrUpdate`, set the fallback registry env vars above
-so the trigger can re-send valid credentials.
+configured directly on the ACA Job template as static env vars/secrets. Trigger
+injects only per-job dynamic data (`JOB_PAYLOAD`).
 
 ## Run Locally
 
@@ -82,7 +76,7 @@ curl -X POST "http://localhost:7071/api/trigger-worker" \
 
 ## Callback Behavior
 
-After ACI start succeeds, the function sends a single callback request to
+After job execution start succeeds, the function sends a single callback request to
 `TRIGGER_BACKEND_CALLBACK_URL` with:
 
 - Header `x-trigger-token` (same configured trigger token)
@@ -90,7 +84,7 @@ After ACI start succeeds, the function sends a single callback request to
 - JSON body:
   - `jobId`
   - `status` = `processing`
-  - `containerGroup`
+  - `containerGroup` (Container Apps job name)
   - `containerName`
   - `startedAt`
 

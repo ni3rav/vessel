@@ -1,15 +1,49 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from "@azure/functions";
-import { ContainerInstanceManagementClient } from "@azure/arm-containerinstance";
 import { DefaultAzureCredential } from "@azure/identity";
 import { getEnv } from "../lib/env";
 
 const TOKEN_HEADER = "x-trigger-token";
 const JOB_SECRET_HEADER = "x-job-secret";
+const ARM_SCOPE = "https://management.azure.com/.default";
+const ARM_BASE_URL = "https://management.azure.com";
+const CONTAINER_APPS_API_VERSION = "2024-03-01";
+
 interface WorkerJobPayload {
   id: string;
   key: string;
   filename: string;
   userid: string;
+}
+
+interface ArmEnvironmentVar {
+  name?: string;
+  value?: string;
+  secretRef?: string;
+}
+
+interface ArmJobTemplateContainer {
+  name?: string;
+  env?: ArmEnvironmentVar[];
+  [key: string]: unknown;
+}
+
+interface ArmJobTemplate {
+  containers?: ArmJobTemplateContainer[];
+  [key: string]: unknown;
+}
+
+interface ArmJobResource {
+  properties?: {
+    template?: ArmJobTemplate;
+  };
+}
+
+interface ArmJobExecution {
+  name?: string;
+  properties?: {
+    status?: string;
+    startTime?: string;
+  };
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -51,17 +85,22 @@ function json(status: number, body: unknown): HttpResponseInit {
   };
 }
 
-function isActiveContainerGroupState(state: string | undefined): boolean {
-  if (!state) return false;
-  const normalized = state.toLowerCase();
-  return normalized === "running" || normalized === "pending";
+function isTerminalExecutionStatus(status: string | undefined): boolean {
+  if (!status) return false;
+  const normalized = status.toLowerCase();
+  return (
+    normalized === "succeeded" ||
+    normalized === "failed" ||
+    normalized === "canceled" ||
+    normalized === "cancelled"
+  );
 }
 
 function withUpsertedEnvVars(
-  existing: Array<{ name?: string; value?: string; secureValue?: string }> | undefined,
+  existing: ArmEnvironmentVar[] | undefined,
   overrides: Record<string, string>,
-): Array<{ name: string; value?: string; secureValue?: string }> {
-  const vars = [...(existing ?? [])] as Array<{ name?: string; value?: string; secureValue?: string }>;
+): ArmEnvironmentVar[] {
+  const vars = [...(existing ?? [])];
   const byName = new Map<string, number>();
   vars.forEach((item, index) => {
     if (item.name) byName.set(item.name, index);
@@ -75,76 +114,128 @@ function withUpsertedEnvVars(
       vars.push({ name, value });
     }
   }
-  return vars as Array<{ name: string; value?: string; secureValue?: string }>;
+  return vars;
 }
 
 function pickContainerName(
   requestedName: string | undefined,
-  containers: Array<{ name?: string }> | undefined,
+  containers: ArmJobTemplateContainer[] | undefined,
 ): string | undefined {
   if (!containers || containers.length === 0) return undefined;
   if (!requestedName) return containers[0]?.name;
   return containers.find((container) => container.name === requestedName)?.name;
 }
 
-function shouldIncludeDiagnostics(diagnostics: any): boolean {
-  const logAnalytics = diagnostics?.logAnalytics;
-  if (!logAnalytics) return false;
-
-  // Some GET responses omit/mask workspaceKey; sending partial diagnostics
-  // back to createOrUpdate fails payload serialization.
-  const hasWorkspaceId = isNonEmptyString(logAnalytics.workspaceId);
-  const hasWorkspaceKey = isNonEmptyString(logAnalytics.workspaceKey);
-  return hasWorkspaceId && hasWorkspaceKey;
+function buildJobResourcePath(env: ReturnType<typeof getEnv>): string {
+  return `/subscriptions/${env.subscriptionId}/resourceGroups/${env.resourceGroup}/providers/Microsoft.App/jobs/${env.containerAppsJobName}`;
 }
 
-function resolveImageRegistryCredentials(
-  existing: Array<{ server?: string; username?: string; password?: string; identity?: string }>
-    | undefined,
-  env: ReturnType<typeof getEnv>,
-): {
-  credentials?: Array<{ server?: string; username?: string; password?: string; identity?: string }>;
-  error?: string;
-} {
-  if (!existing || existing.length === 0) {
-    return {};
+async function getArmAccessToken(credential: DefaultAzureCredential): Promise<string> {
+  const tokenResponse = await credential.getToken(ARM_SCOPE);
+  if (!tokenResponse?.token) {
+    throw new Error("Failed to obtain Azure ARM access token");
   }
+  return tokenResponse.token;
+}
 
-  const resolved = existing.map((cred) => {
-    const hasPassword = isNonEmptyString(cred.password);
-    if (hasPassword) return cred;
-
-    const serverMatches =
-      !env.registryServer ||
-      !cred.server ||
-      env.registryServer.toLowerCase() === cred.server.toLowerCase();
-    const usernameMatches =
-      !env.registryUsername || !cred.username || env.registryUsername === cred.username;
-
-    if (env.registryPassword && serverMatches && usernameMatches) {
-      return {
-        ...cred,
-        server: cred.server ?? env.registryServer,
-        username: cred.username ?? env.registryUsername,
-        password: env.registryPassword,
-      };
-    }
-
-    return cred;
+async function armRequest<T>(input: {
+  method: "GET" | "POST";
+  accessToken: string;
+  url: string;
+  body?: unknown;
+}): Promise<T> {
+  const res = await fetch(input.url, {
+    method: input.method,
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.accessToken}`,
+    },
+    body: input.body === undefined ? undefined : JSON.stringify(input.body),
   });
 
-  const stillMissingPassword = resolved.some(
-    (cred) => !cred.identity && !isNonEmptyString(cred.password),
-  );
-  if (stillMissingPassword) {
-    return {
-      error:
-        "Container group has imageRegistryCredentials with hidden/missing password from ARM GET. " +
-        "Set AZURE_IMAGE_REGISTRY_PASSWORD (and optionally AZURE_IMAGE_REGISTRY_SERVER / AZURE_IMAGE_REGISTRY_USERNAME) in local.settings.json.",
-    };
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`ARM ${input.method} ${input.url} failed with ${res.status}: ${text}`);
   }
 
-  return { credentials: resolved };
+  if (res.status === 204) {
+    return {} as T;
+  }
+
+  const text = await res.text();
+  if (!text) return {} as T;
+  return JSON.parse(text) as T;
+}
+
+async function fetchJobTemplate(input: {
+  accessToken: string;
+  env: ReturnType<typeof getEnv>;
+}): Promise<{ template: ArmJobTemplate; containerName: string }> {
+  const resourcePath = buildJobResourcePath(input.env);
+  const url = `${ARM_BASE_URL}${resourcePath}?api-version=${CONTAINER_APPS_API_VERSION}`;
+  const job = await armRequest<ArmJobResource>({
+    method: "GET",
+    accessToken: input.accessToken,
+    url,
+  });
+
+  const template = job.properties?.template;
+  if (!template?.containers || template.containers.length === 0) {
+    throw new Error("Container Apps Job template has no containers.");
+  }
+
+  const selectedContainerName = pickContainerName(input.env.jobContainerName, template.containers);
+  if (!selectedContainerName) {
+    throw new Error(
+      input.env.jobContainerName
+        ? `Configured AZURE_CONTAINERAPPS_JOB_CONTAINER_NAME '${input.env.jobContainerName}' was not found in the job template.`
+        : "No container found in Container Apps Job template.",
+    );
+  }
+
+  return { template, containerName: selectedContainerName };
+}
+
+async function listExecutions(input: {
+  accessToken: string;
+  env: ReturnType<typeof getEnv>;
+}): Promise<ArmJobExecution[]> {
+  const resourcePath = buildJobResourcePath(input.env);
+  const url = `${ARM_BASE_URL}${resourcePath}/executions?api-version=${CONTAINER_APPS_API_VERSION}`;
+  const response = await armRequest<{ value?: ArmJobExecution[] }>({
+    method: "GET",
+    accessToken: input.accessToken,
+    url,
+  });
+  return Array.isArray(response.value) ? response.value : [];
+}
+
+function getLatestExecutionName(executions: ArmJobExecution[]): string | undefined {
+  const sorted = [...executions].sort((a, b) => {
+    const aTime = new Date(a.properties?.startTime ?? 0).getTime();
+    const bTime = new Date(b.properties?.startTime ?? 0).getTime();
+    return bTime - aTime;
+  });
+  return sorted[0]?.name;
+}
+
+async function startJobExecution(input: {
+  accessToken: string;
+  env: ReturnType<typeof getEnv>;
+  template: ArmJobTemplate;
+}): Promise<string | undefined> {
+  const resourcePath = buildJobResourcePath(input.env);
+  const url = `${ARM_BASE_URL}${resourcePath}/start?api-version=${CONTAINER_APPS_API_VERSION}`;
+  const response = await armRequest<{ name?: string }>({
+    method: "POST",
+    accessToken: input.accessToken,
+    url,
+    body: {
+      template: input.template,
+    },
+  });
+
+  return response.name;
 }
 
 async function notifyBackendProcessingStarted(input: {
@@ -227,123 +318,56 @@ export async function triggerWorker(
     const payloadString = JSON.stringify(workerPayload);
 
     const credential = new DefaultAzureCredential();
-    const client = new ContainerInstanceManagementClient(credential, env.subscriptionId);
-
-    const group = await client.containerGroups.get(env.resourceGroup, env.containerGroup);
-    const state = group.instanceView?.state;
-    if (isActiveContainerGroupState(state)) {
+    const accessToken = await getArmAccessToken(credential);
+    const executions = await listExecutions({ accessToken, env });
+    const activeExecutions = executions.filter(
+      (execution) => !isTerminalExecutionStatus(execution.properties?.status),
+    );
+    if (activeExecutions.length >= env.maxActiveExecutions) {
       return json(409, {
         id: payload.id,
         status: "failed",
-        error: "Rejected duplicate trigger; container group is already active.",
-        state,
+        error: `Rejected trigger; active execution limit (${env.maxActiveExecutions}) reached.`,
+        activeExecutions: activeExecutions.length,
       });
     }
 
-    const selectedContainerName = pickContainerName(env.containerName, group.containers);
-    if (!selectedContainerName) {
-      return json(500, {
-        id: payload.id,
-        status: "failed",
-        error: "No container found in target container group.",
-      });
-    }
-
-    if (env.containerName && selectedContainerName !== env.containerName) {
-      return json(500, {
-        id: payload.id,
-        status: "failed",
-        error: `Configured AZURE_CONTAINER_NAME '${env.containerName}' was not found.`,
-      });
-    }
-
-    const updatedContainers = (group.containers ?? []).map((container) => {
-      const plain = container as any;
-      const updatedEnv = withUpsertedEnvVars(
-        plain.environmentVariables,
-        {
+    const { template, containerName } = await fetchJobTemplate({ accessToken, env });
+    const updatedTemplate: ArmJobTemplate = {
+      ...template,
+      containers: (template.containers ?? []).map((container) => {
+        const updatedEnv = withUpsertedEnvVars(container.env, {
           [env.payloadEnvVarName]: payloadString,
-        },
-      );
-
-      return {
-        ...plain,
-        environmentVariables:
-          plain.name === selectedContainerName ? updatedEnv : plain.environmentVariables,
-      };
-    });
-
-    const imageRegistry = resolveImageRegistryCredentials(group.imageRegistryCredentials, env);
-    if (imageRegistry.error) {
-      return json(500, { id: payload.id, status: "failed", error: imageRegistry.error });
-    }
-
-    const groupPayload: any = {
-      location: group.location,
-      osType: group.osType,
-      restartPolicy: group.restartPolicy,
-      containers: updatedContainers,
+        });
+        return {
+          ...container,
+          env: container.name === containerName ? updatedEnv : container.env,
+        };
+      }),
     };
-    if (imageRegistry.credentials) {
-      groupPayload.imageRegistryCredentials = imageRegistry.credentials;
-    }
-    if (group.ipAddress) {
-      groupPayload.ipAddress = group.ipAddress;
-    }
-    if (group.subnetIds) {
-      groupPayload.subnetIds = group.subnetIds;
-    }
-    if (group.volumes) {
-      groupPayload.volumes = group.volumes;
-    }
-    if (group.identity) {
-      groupPayload.identity = group.identity;
-    }
-    if (group.sku) {
-      groupPayload.sku = group.sku;
-    }
-    if ((group as any).dnsConfig) {
-      groupPayload.dnsConfig = (group as any).dnsConfig;
-    }
-    if (group.zones) {
-      groupPayload.zones = group.zones;
-    }
-    if ((group as any).initContainers) {
-      groupPayload.initContainers = (group as any).initContainers;
-    }
-    if ((group as any).encryptionProperties) {
-      groupPayload.encryptionProperties = (group as any).encryptionProperties;
-    }
-    if ((group as any).extensions) {
-      groupPayload.extensions = (group as any).extensions;
-    }
-    if ((group as any).priority) {
-      groupPayload.priority = (group as any).priority;
-    }
-    if (shouldIncludeDiagnostics(group.diagnostics)) {
-      groupPayload.diagnostics = group.diagnostics;
-    }
 
-    await client.containerGroups.beginCreateOrUpdateAndWait(
-      env.resourceGroup,
-      env.containerGroup,
-      groupPayload,
-    );
-    await client.containerGroups.beginStartAndWait(env.resourceGroup, env.containerGroup);
+    const executionName =
+      (await startJobExecution({
+        accessToken,
+        env,
+        template: updatedTemplate,
+      })) ?? getLatestExecutionName(await listExecutions({ accessToken, env }));
 
     await notifyBackendProcessingStarted({
       callbackUrl: env.backendProcessingStartedUrl,
       triggerToken: env.triggerToken,
       jobSecret: normalizedJobSecret,
       id: payload.id,
-      containerGroup: env.containerGroup,
-      containerName: selectedContainerName,
+      containerGroup: env.containerAppsJobName,
+      containerName,
     });
 
     context.log("Worker trigger accepted", {
-      containerGroup: env.containerGroup,
-      containerName: selectedContainerName,
+      jobName: env.containerAppsJobName,
+      executionName,
+      containerName,
       payloadEnvVarName: env.payloadEnvVarName,
+      maxActiveExecutions: env.maxActiveExecutions,
       backendCallbackUrl: env.backendProcessingStartedUrl,
     });
 
@@ -352,17 +376,18 @@ export async function triggerWorker(
       id: payload.id,
       jobId: payload.id,
       status: "processing",
-      containerGroup: env.containerGroup,
-      containerName: selectedContainerName,
+      containerGroup: env.containerAppsJobName,
+      containerName,
+      executionName,
       payloadEnvVarName: env.payloadEnvVarName,
-      fileKey:payload.key,
-      message: "Container start requested.",
+      fileKey: payload.key,
+      message: "Container Apps Job execution start requested.",
     });
   } catch (error) {
     context.error("Failed to trigger worker", error);
     return json(500, {
       ...(requestId ? { id: requestId, status: "failed" } : {}),
-      error: "Failed to trigger worker container.",
+      error: "Failed to trigger worker job.",
       detail: String(error),
     });
   }
