@@ -2,6 +2,7 @@ import { killActiveProcesses } from "./ffmpeg";
 import { logger } from "./logger";
 import { processJob } from "./job";
 import { sendWorkerCallback } from "./callback";
+import { getMissingRequiredRuntimeEnv } from "./config";
 import type { JobPayload } from "./types";
 
 let shuttingDown = false;
@@ -31,6 +32,13 @@ async function readStdin(): Promise<string> {
 
 async function main(): Promise<void> {
   logger.info("Worker starting");
+
+  const missingEnv = getMissingRequiredRuntimeEnv();
+  if (missingEnv.length > 0) {
+    logger.error("Missing required worker environment variables", { missingEnv });
+    process.exit(1);
+    return;
+  }
 
   let raw: string;
 

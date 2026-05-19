@@ -160,7 +160,8 @@ docker run --rm \
   "id": "test-001",
   "key": "uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3",
   "filename": "test.mp3",
-  "userid": "user_abc"
+  "userid": "user_abc",
+  "jobSecret": "generated-per-job-secret"
 }
 EOF
 ```
@@ -174,7 +175,7 @@ docker run --rm \
   -e R2_SECRET_ACCESS_KEY=... \
   -e R2_BUCKET=... \
   -e R2_PUBLIC_BASE_URL=https://dev-media.hivecms.online \
-  -e JOB_PAYLOAD='{"id":"test-001","key":"uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3","filename":"test.mp3","userid":"user_abc"}' \
+  -e JOB_PAYLOAD='{"id":"test-001","key":"uploads/user_abc/a1b2c3d4/a1b2c3d4.mp3","filename":"test.mp3","userid":"user_abc","jobSecret":"generated-per-job-secret"}' \
   vessel-worker
 ```
 
@@ -204,6 +205,9 @@ For cloud runs, use this split:
 | `WORKER_CALLBACK_URL`  | —              | Backend endpoint for worker status callback      |
 | `WORKER_SECRET`        | —              | Shared secret sent as `x-worker-secret` header  |
 | `JOB_PAYLOAD`          | —              | JSON job payload (alternative to stdin)         |
+
+Use `apps/worker/.env.example` as the baseline when configuring static worker
+env vars in ACI/ACA Job templates.
 
 ---
 
