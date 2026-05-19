@@ -29,6 +29,7 @@ interface ArmJobTemplateContainer {
 
 interface ArmJobTemplate {
   containers?: ArmJobTemplateContainer[];
+  initContainers?: ArmJobTemplateContainer[];
   [key: string]: unknown;
 }
 
@@ -115,6 +116,27 @@ function withUpsertedEnvVars(
     }
   }
   return vars;
+}
+
+function sanitizeExecutionContainer(container: ArmJobTemplateContainer): ArmJobTemplateContainer {
+  return {
+    name: container.name as string | undefined,
+    image: container.image as string | undefined,
+    command: Array.isArray(container.command) ? (container.command as string[]) : undefined,
+    args: Array.isArray(container.args) ? (container.args as string[]) : undefined,
+    env: Array.isArray(container.env) ? (container.env as ArmEnvironmentVar[]) : undefined,
+    resources:
+      container.resources && typeof container.resources === "object"
+        ? (container.resources as Record<string, unknown>)
+        : undefined,
+  };
+}
+
+function sanitizeExecutionTemplate(template: ArmJobTemplate): ArmJobTemplate {
+  return {
+    containers: (template.containers ?? []).map(sanitizeExecutionContainer),
+    initContainers: (template.initContainers ?? []).map(sanitizeExecutionContainer),
+  };
 }
 
 function pickContainerName(
@@ -343,12 +365,13 @@ export async function triggerWorker(
         };
       }),
     };
+    const executionTemplate = sanitizeExecutionTemplate(updatedTemplate);
 
     const executionName =
       (await startJobExecution({
         accessToken,
         env,
-        template: updatedTemplate,
+        template: executionTemplate,
       })) ?? getLatestExecutionName(await listExecutions({ accessToken, env }));
 
     await notifyBackendProcessingStarted({
