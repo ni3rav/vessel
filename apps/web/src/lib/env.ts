@@ -16,5 +16,6 @@ export const env = z
     TRIGGER_FUNCTION_URL: z.url(),
     TRIGGER_SECRET: z.string(),
     WORKER_SECRET: z.string(),
+    CRON_SECRET: z.string(),
   })
   .parse(process.env);
