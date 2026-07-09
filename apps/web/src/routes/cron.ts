@@ -1,6 +1,7 @@
 import { db } from "@/db";
 import { uploads } from "@/db/schema";
 import { env } from "@/lib/env";
+import { tryCatch } from "@/lib/try-catch";
 import { and, eq, lt, or, sql } from "drizzle-orm";
 import { Elysia } from "elysia";
 
@@ -27,11 +28,20 @@ export const cronRouter = new Elysia({ prefix: "/cron" }).get(
 
     const failed = eq(uploads.status, "failed");
 
-    const deleted = await db
-      .delete(uploads)
-      .where(or(staleUploading, staleProcessing, failed))
-      .returning({ id: uploads.id, status: uploads.status });
+    const result = await tryCatch(
+      db
+        .delete(uploads)
+        .where(or(staleUploading, staleProcessing, failed))
+        .returning({ id: uploads.id, status: uploads.status })
+    );
 
+    if (result.error) {
+      set.status = 500;
+      console.error("[cron.cleanup-uploads] Failed to delete uploads", result.error);
+      return { error: "Failed to cleanup uploads", deleted: 0 };
+    }
+
+    const deleted = result.data as Array<{ id: string; status: string }>;
     console.info("[cron.cleanup-uploads] Deleted stale/failed upload records", {
       count: deleted.length,
       ids: deleted.map((r) => ({ id: r.id, status: r.status })),
