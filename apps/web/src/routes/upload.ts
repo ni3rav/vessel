@@ -3,6 +3,7 @@ import { uploads } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { publishTranscodeJob } from "@/lib/service-bus";
+import { handlePublishFailure } from "@/lib/upload-failure";
 import { tryCatch } from "@/lib/try-catch";
 import { createR2Client, deleteObject, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
 import { eq } from "drizzle-orm";
@@ -39,55 +40,6 @@ async function triggerProcessingJob(input: {
   });
 }
 
-async function handleTriggerFailure(input: {
-  id: string;
-  userId: string;
-  key: string;
-}): Promise<void> {
-  const { error: markFailedError } = await tryCatch(
-    db.transaction(async (tx) => {
-      await tx
-        .update(uploads)
-        .set({ status: "failed" })
-        .where(eq(uploads.id, input.id));
-    })
-  );
-  if (markFailedError) {
-    console.error("[upload.complete] Failed to mark upload as failed after trigger error", {
-      uploadId: input.id,
-      userId: input.userId,
-      key: input.key,
-      error: markFailedError,
-    });
-  }
-
-  const { error: deleteError } = await tryCatch(
-    deleteObject(r2, {
-      bucket: env.R2_BUCKET,
-      key: input.key,
-    })
-  );
-  if (deleteError) {
-    console.error("[upload.complete] Failed to cleanup source object after trigger failure", {
-      uploadId: input.id,
-      userId: input.userId,
-      key: input.key,
-      reason: "trigger_failed",
-      deleteAttempted: true,
-      deleteSucceeded: false,
-      error: deleteError,
-    });
-  } else {
-    console.info("[upload.complete] Cleaned up source object after trigger failure", {
-      uploadId: input.id,
-      userId: input.userId,
-      key: input.key,
-      reason: "trigger_failed",
-      deleteAttempted: true,
-      deleteSucceeded: true,
-    });
-  }
-}
 
 const r2 = createR2Client({
   accountId: env.R2_ACCOUNT_ID,
@@ -191,7 +143,19 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
         key,
         error: triggerError,
       });
-      await handleTriggerFailure({ id, userId: session.user.id, key });
+      await handlePublishFailure(
+        { id, userId: session.user.id, key },
+        {
+          markFailed: (uploadId) =>
+            db
+              .update(uploads)
+              .set({ status: "failed" })
+              .where(eq(uploads.id, uploadId))
+              .then(() => undefined),
+          deleteSource: (objectKey) =>
+            deleteObject(r2, { bucket: env.R2_BUCKET, key: objectKey }),
+        },
+      );
     });
 
     return { id, publicUrl };

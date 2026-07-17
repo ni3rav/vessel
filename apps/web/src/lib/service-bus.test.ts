@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock env to avoid needing real environment variables ---
 vi.mock("@/lib/env", () => ({
   env: {
     AZURE_SERVICE_BUS_CONNECTION_STRING:
