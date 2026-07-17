@@ -2,8 +2,9 @@ import { killActiveProcesses } from "./ffmpeg";
 import { logger } from "./logger";
 import { processJob } from "./job";
 import { sendWorkerCallback } from "./callback";
-import { getMissingRequiredRuntimeEnv } from "./config";
+import { getMissingRequiredRuntimeEnv, config } from "./config";
 import type { JobPayload } from "./types";
+import { ServiceBusClient } from "@azure/service-bus";
 
 let shuttingDown = false;
 
@@ -18,19 +19,7 @@ function shutdown(signal: string): void {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-async function readStdin(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    process.stdin.setEncoding("utf-8");
-    process.stdin.on("data", (chunk: string) => {
-      data += chunk;
-    });
-    process.stdin.on("end", () => resolve(data.trim()));
-    process.stdin.on("error", reject);
-  });
-}
-
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   logger.info("Worker starting");
 
   const missingEnv = getMissingRequiredRuntimeEnv();
@@ -40,65 +29,84 @@ async function main(): Promise<void> {
     return;
   }
 
-  let raw: string;
+  const client = new ServiceBusClient(config.azureServiceBusConnectionString);
+  const receiver = client.createReceiver(config.azureServiceBusQueueName, {
+    receiveMode: "peekLock",
+  });
 
-  // Accept payload from stdin or JOB_PAYLOAD env var
-  if (process.env["JOB_PAYLOAD"]) {
-    raw = process.env["JOB_PAYLOAD"];
-  } else {
-    raw = await readStdin();
-  }
-
-  if (!raw) {
-    logger.error("No job payload provided (stdin or JOB_PAYLOAD env var)");
-    process.exit(1);
-  }
-
-  let payload: JobPayload;
   try {
-    payload = JSON.parse(raw) as JobPayload;
-  } catch {
-    logger.error("Invalid JSON in job payload");
-    process.exit(1);
-    return;
-  }
+    const messages = await receiver.receiveMessages(1, {
+      maxWaitTimeInMs: 5000,
+    });
 
-  if (!payload.id || !payload.key || !payload.filename || !payload.userid || !payload.jobSecret) {
-    logger.error("Job payload missing required fields: id, key, filename, userid, jobSecret");
-    process.exit(1);
-    return;
-  }
-
-  if (shuttingDown) {
-    logger.warn("Shutdown already in progress, skipping job");
-    process.exit(0);
-    return;
-  }
-
-  const result = await processJob(payload);
-  const callbackStatus = await (async () => {
-    const callback = await Promise.resolve(sendWorkerCallback(payload, result)).then(
-      () => ({ ok: true as const }),
-      (error) => ({ ok: false as const, error }),
-    );
-
-    if (!callback.ok) {
-      logger.error("Worker callback failed", {
-        id: payload.id,
-        error: String(callback.error),
-      });
+    if (messages.length === 0) {
+      logger.info("Queue is empty, exiting gracefully");
+      process.exit(0);
+      return;
     }
 
-    return callback.ok;
-  })();
+    const message = messages[0];
+    let payload: JobPayload;
+    try {
+      payload = typeof message.body === "string" ? JSON.parse(message.body) : message.body;
+    } catch {
+      logger.error("Invalid JSON in job payload");
+      await receiver.deadLetterMessage(message, {
+        deadLetterReason: "InvalidJSON",
+        deadLetterErrorDescription: "Payload is not valid JSON",
+      });
+      process.exit(1);
+      return;
+    }
 
-  // Write structured result to stdout as a single JSON line
-  process.stdout.write(JSON.stringify(result) + "\n");
+    if (!payload.id || !payload.key || !payload.filename || !payload.userid || !payload.jobSecret) {
+      logger.error("Job payload missing required fields");
+      await receiver.deadLetterMessage(message, {
+        deadLetterReason: "MissingFields",
+        deadLetterErrorDescription: "Payload missing required fields",
+      });
+      process.exit(1);
+      return;
+    }
 
-  process.exit(result.success && callbackStatus ? 0 : 1);
+    if (shuttingDown) {
+      logger.warn("Shutdown already in progress, skipping job");
+      await receiver.abandonMessage(message);
+      process.exit(0);
+      return;
+    }
+
+    const result = await processJob(payload);
+    const callbackStatus = await Promise.resolve(sendWorkerCallback(payload, result)).then(
+      () => true,
+      (error) => {
+        logger.error("Worker callback failed", { id: payload.id, error: String(error) });
+        return false;
+      }
+    );
+
+    process.stdout.write(JSON.stringify(result) + "\n");
+
+    if (result.success && callbackStatus) {
+      await receiver.completeMessage(message);
+      process.exit(0);
+    } else {
+      await receiver.abandonMessage(message);
+      process.exit(1);
+    }
+  } catch (err) {
+    logger.error("Unhandled error in worker", { error: String(err) });
+    process.exit(1);
+  } finally {
+    await receiver.close();
+    await client.close();
+  }
 }
 
-main().catch((err) => {
-  logger.error("Unhandled error in worker", { error: String(err) });
-  process.exit(1);
-});
+const isMain = typeof require !== "undefined" && require.main === module;
+if (isMain) {
+  main().catch((err) => {
+    logger.error("Unhandled error in worker", { error: String(err) });
+    process.exit(1);
+  });
+}
