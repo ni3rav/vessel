@@ -8,9 +8,11 @@
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
     "format": "prettier --check ."
   },
   "dependencies": {
+    "@azure/service-bus": "^7.9.5",
     "@elysia/eden": "^1.4.10",
     "@sinclair/typebox": "^0.34.49",
     "@vessel/database": "workspace:*",
@@ -45,11 +47,13 @@
     "@vessel/eslint-config": "workspace:*",
     "@vessel/prettier-config": "workspace:*",
     "@vessel/typescript-config": "workspace:*",
+    "@vitest/coverage-v8": "^4.1.10",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.5",
     "prettier": "^3.8.3",
     "tailwindcss": "^4.2.4",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
   }
 }

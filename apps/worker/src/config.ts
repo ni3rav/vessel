@@ -13,6 +13,8 @@ export interface WorkerConfig {
   r2PublicBaseUrl: string;
   workerCallbackUrl: string;
   workerSecret: string;
+  azureServiceBusConnectionString: string;
+  azureServiceBusQueueName: string;
 }
 
 type WorkerRequiredEnvKey =
@@ -22,7 +24,9 @@ type WorkerRequiredEnvKey =
   | "R2_BUCKET"
   | "R2_PUBLIC_BASE_URL|SOURCE_BASE_URL"
   | "WORKER_CALLBACK_URL"
-  | "WORKER_SECRET";
+  | "WORKER_SECRET"
+  | "AZURE_SERVICE_BUS_CONNECTION_STRING"
+  | "AZURE_SERVICE_BUS_QUEUE_NAME";
 
 function parseLogLevel(value: string | undefined): WorkerConfig["logLevel"] {
   const levels = ["debug", "info", "warn", "error"] as const;
@@ -53,6 +57,8 @@ export const config: WorkerConfig = {
     process.env["R2_PUBLIC_BASE_URL"] ?? process.env["SOURCE_BASE_URL"] ?? "",
   workerCallbackUrl: process.env["WORKER_CALLBACK_URL"] ?? "",
   workerSecret: process.env["WORKER_SECRET"] ?? "",
+  azureServiceBusConnectionString: process.env["AZURE_SERVICE_BUS_CONNECTION_STRING"] ?? "",
+  azureServiceBusQueueName: process.env["AZURE_SERVICE_BUS_QUEUE_NAME"] ?? "",
 };
 
 export function getMissingRequiredRuntimeEnv(): WorkerRequiredEnvKey[] {
@@ -64,5 +70,7 @@ export function getMissingRequiredRuntimeEnv(): WorkerRequiredEnvKey[] {
   if (!config.r2PublicBaseUrl) missing.push("R2_PUBLIC_BASE_URL|SOURCE_BASE_URL");
   if (!config.workerCallbackUrl) missing.push("WORKER_CALLBACK_URL");
   if (!config.workerSecret) missing.push("WORKER_SECRET");
+  if (!config.azureServiceBusConnectionString) missing.push("AZURE_SERVICE_BUS_CONNECTION_STRING");
+  if (!config.azureServiceBusQueueName) missing.push("AZURE_SERVICE_BUS_QUEUE_NAME");
   return missing;
 }

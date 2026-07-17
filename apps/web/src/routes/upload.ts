@@ -2,22 +2,18 @@ import { db } from "@/db";
 import { uploads } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
+import { publishTranscodeJob } from "@/lib/service-bus";
+import { handlePublishFailure } from "@/lib/upload-failure";
 import { tryCatch } from "@/lib/try-catch";
 import { createR2Client, deleteObject, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
-import { z } from "zod";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav"];
 const ALLOWED_EXTENSIONS = [".mp3", ".wav"];
-const TRIGGER_RESPONSE_SCHEMA = z.object({
-  accepted: z.literal(true),
-  id: z.string().min(1),
-  status: z.literal("processing"),
-});
 
 function validateUpload(filename: string, contentType: string, size: number): string | null {
   const ext = `.${filename.split(".").pop()?.toLowerCase() ?? ""}`;
@@ -35,92 +31,15 @@ async function triggerProcessingJob(input: {
   userId: string;
   jobSecret: string;
 }): Promise<void> {
-  const triggerPayload = {
+  await publishTranscodeJob({
     id: input.id,
     key: input.key,
     filename: input.filename,
     userid: input.userId,
-  };
-
-  const res = await fetch(env.TRIGGER_FUNCTION_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-trigger-token": env.TRIGGER_SECRET,
-      "x-job-secret": input.jobSecret,
-    },
-    body: JSON.stringify(triggerPayload),
+    jobSecret: input.jobSecret,
   });
-
-  if (!res.ok) {
-    const responseText = await res.text();
-    throw new Error(responseText || `Trigger function failed with HTTP ${res.status}`);
-  }
-
-  const { data: responseBody, error: responseReadError } = await tryCatch(res.json());
-  if (responseReadError) {
-    throw new Error("Trigger function returned invalid JSON response");
-  }
-
-  const parsed = TRIGGER_RESPONSE_SCHEMA.safeParse(responseBody);
-  if (!parsed.success) {
-    throw new Error("Trigger function response shape is invalid");
-  }
-
-  if (parsed.data.id !== input.id) {
-    throw new Error("Trigger function response id mismatch");
-  }
 }
 
-async function handleTriggerFailure(input: {
-  id: string;
-  userId: string;
-  key: string;
-}): Promise<void> {
-  const { error: markFailedError } = await tryCatch(
-    db.transaction(async (tx) => {
-      await tx
-        .update(uploads)
-        .set({ status: "failed" })
-        .where(eq(uploads.id, input.id));
-    })
-  );
-  if (markFailedError) {
-    console.error("[upload.complete] Failed to mark upload as failed after trigger error", {
-      uploadId: input.id,
-      userId: input.userId,
-      key: input.key,
-      error: markFailedError,
-    });
-  }
-
-  const { error: deleteError } = await tryCatch(
-    deleteObject(r2, {
-      bucket: env.R2_BUCKET,
-      key: input.key,
-    })
-  );
-  if (deleteError) {
-    console.error("[upload.complete] Failed to cleanup source object after trigger failure", {
-      uploadId: input.id,
-      userId: input.userId,
-      key: input.key,
-      reason: "trigger_failed",
-      deleteAttempted: true,
-      deleteSucceeded: false,
-      error: deleteError,
-    });
-  } else {
-    console.info("[upload.complete] Cleaned up source object after trigger failure", {
-      uploadId: input.id,
-      userId: input.userId,
-      key: input.key,
-      reason: "trigger_failed",
-      deleteAttempted: true,
-      deleteSucceeded: true,
-    });
-  }
-}
 
 const r2 = createR2Client({
   accountId: env.R2_ACCOUNT_ID,
@@ -218,14 +137,25 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
       userId: session.user.id,
       jobSecret,
     }).catch(async (triggerError) => {
-      console.error("[upload.complete] Trigger function call failed", {
+      console.error("[upload.complete] Service Bus publish failed", {
         uploadId: id,
         userId: session.user.id,
         key,
-        triggerUrl: env.TRIGGER_FUNCTION_URL,
         error: triggerError,
       });
-      await handleTriggerFailure({ id, userId: session.user.id, key });
+      await handlePublishFailure(
+        { id, userId: session.user.id, key },
+        {
+          markFailed: (uploadId) =>
+            db
+              .update(uploads)
+              .set({ status: "failed" })
+              .where(eq(uploads.id, uploadId))
+              .then(() => undefined),
+          deleteSource: (objectKey) =>
+            deleteObject(r2, { bucket: env.R2_BUCKET, key: objectKey }).then(() => undefined),
+        },
+      );
     });
 
     return { id, publicUrl };
