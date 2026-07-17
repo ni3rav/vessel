@@ -13,8 +13,8 @@ export const env = z
     R2_SECRET_ACCESS_KEY: z.string(),
     R2_BUCKET: z.string(),
     NEXT_PUBLIC_R2_PUBLIC_URL: z.string(),
-    TRIGGER_FUNCTION_URL: z.url(),
-    TRIGGER_SECRET: z.string(),
+    AZURE_SERVICE_BUS_CONNECTION_STRING: z.string().min(1),
+    AZURE_SERVICE_BUS_QUEUE_NAME: z.string().min(1),
     WORKER_SECRET: z.string(),
     CRON_SECRET: z.string(),
   })
