@@ -153,7 +153,7 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
               .where(eq(uploads.id, uploadId))
               .then(() => undefined),
           deleteSource: (objectKey) =>
-            deleteObject(r2, { bucket: env.R2_BUCKET, key: objectKey }),
+            deleteObject(r2, { bucket: env.R2_BUCKET, key: objectKey }).then(() => undefined),
         },
       );
     });
