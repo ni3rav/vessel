@@ -80,3 +80,46 @@ describe("Worker Entry Point - Empty Queue Exit", () => {
     expect(mockClientClose).toHaveBeenCalled();
   });
 });
+
+describe("Worker Entry Point - Success Path", () => {
+  let exitSpy: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      return undefined as never;
+    });
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+  });
+
+  it("processes message successfully and completes it", async () => {
+    const payload = {
+      id: "job-123",
+      key: "uploads/user-1/job-123/track.mp3",
+      filename: "track.mp3",
+      userid: "user-1",
+      jobSecret: "secret-xyz",
+    };
+    const mockMessage = { body: payload };
+    mockReceiveMessages.mockResolvedValue([mockMessage]);
+    mockProcessJob.mockResolvedValue({ success: true });
+    mockSendWorkerCallback.mockResolvedValue(undefined);
+
+    await main();
+
+    expect(mockReceiveMessages).toHaveBeenCalledWith(1, {
+      maxWaitTimeInMs: 5000,
+    });
+    expect(mockProcessJob).toHaveBeenCalledWith(payload);
+    expect(mockSendWorkerCallback).toHaveBeenCalledWith(payload, { success: true });
+    expect(mockCompleteMessage).toHaveBeenCalledWith(mockMessage);
+    expect(mockAbandonMessage).not.toHaveBeenCalled();
+    expect(mockDeadLetterMessage).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(mockReceiverClose).toHaveBeenCalled();
+    expect(mockClientClose).toHaveBeenCalled();
+  });
+});
