@@ -2,22 +2,17 @@ import { db } from "@/db";
 import { uploads } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
+import { publishTranscodeJob } from "@/lib/service-bus";
 import { tryCatch } from "@/lib/try-catch";
 import { createR2Client, deleteObject, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
-import { z } from "zod";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav"];
 const ALLOWED_EXTENSIONS = [".mp3", ".wav"];
-const TRIGGER_RESPONSE_SCHEMA = z.object({
-  accepted: z.literal(true),
-  id: z.string().min(1),
-  status: z.literal("processing"),
-});
 
 function validateUpload(filename: string, contentType: string, size: number): string | null {
   const ext = `.${filename.split(".").pop()?.toLowerCase() ?? ""}`;
@@ -35,41 +30,13 @@ async function triggerProcessingJob(input: {
   userId: string;
   jobSecret: string;
 }): Promise<void> {
-  const triggerPayload = {
+  await publishTranscodeJob({
     id: input.id,
     key: input.key,
     filename: input.filename,
     userid: input.userId,
-  };
-
-  const res = await fetch(env.TRIGGER_FUNCTION_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-trigger-token": env.TRIGGER_SECRET,
-      "x-job-secret": input.jobSecret,
-    },
-    body: JSON.stringify(triggerPayload),
+    jobSecret: input.jobSecret,
   });
-
-  if (!res.ok) {
-    const responseText = await res.text();
-    throw new Error(responseText || `Trigger function failed with HTTP ${res.status}`);
-  }
-
-  const { data: responseBody, error: responseReadError } = await tryCatch(res.json());
-  if (responseReadError) {
-    throw new Error("Trigger function returned invalid JSON response");
-  }
-
-  const parsed = TRIGGER_RESPONSE_SCHEMA.safeParse(responseBody);
-  if (!parsed.success) {
-    throw new Error("Trigger function response shape is invalid");
-  }
-
-  if (parsed.data.id !== input.id) {
-    throw new Error("Trigger function response id mismatch");
-  }
 }
 
 async function handleTriggerFailure(input: {
@@ -218,11 +185,10 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
       userId: session.user.id,
       jobSecret,
     }).catch(async (triggerError) => {
-      console.error("[upload.complete] Trigger function call failed", {
+      console.error("[upload.complete] Service Bus publish failed", {
         uploadId: id,
         userId: session.user.id,
         key,
-        triggerUrl: env.TRIGGER_FUNCTION_URL,
         error: triggerError,
       });
       await handleTriggerFailure({ id, userId: session.user.id, key });

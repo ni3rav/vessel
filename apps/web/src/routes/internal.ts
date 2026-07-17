@@ -7,13 +7,6 @@ import { Elysia } from "elysia";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
-const TRIGGER_CALLBACK_SCHEMA = z.object({
-  id: z.string().min(1),
-  status: z.enum(["processing", "failed"]),
-  containerGroup: z.string().min(1),
-  containerName: z.string().min(1),
-  startedAt: z.iso.datetime(),
-});
 const WORKER_CALLBACK_SCHEMA = z.object({
   id: z.string().min(1),
   status: z.enum(["ready", "failed"]),
@@ -23,7 +16,6 @@ const WORKER_CALLBACK_SCHEMA = z.object({
   error: z.string().optional(),
 });
 
-const TRIGGER_TOKEN_HEADER = "x-trigger-token";
 const WORKER_SECRET_HEADER = "x-worker-secret";
 const JOB_SECRET_HEADER = "x-job-secret";
 
@@ -31,7 +23,7 @@ async function handleStatusCallback(input: {
   request: Request;
   expectedSecretHeader: string;
   expectedSecretValue: string;
-  schema: typeof TRIGGER_CALLBACK_SCHEMA | typeof WORKER_CALLBACK_SCHEMA;
+  schema: typeof WORKER_CALLBACK_SCHEMA;
   logPrefix: string;
 }): Promise<Response | { ok: true; id: string; status: string }> {
   const secret = input.request.headers.get(input.expectedSecretHeader);
@@ -112,15 +104,6 @@ async function handleStatusCallback(input: {
 }
 
 export const internalRouter = new Elysia({ prefix: "/internal" })
-  .post("/trigger-callback", async ({ request }) => {
-    return handleStatusCallback({
-      request,
-      expectedSecretHeader: TRIGGER_TOKEN_HEADER,
-      expectedSecretValue: env.TRIGGER_SECRET,
-      schema: TRIGGER_CALLBACK_SCHEMA,
-      logPrefix: "internal.trigger-callback",
-    });
-  })
   .post("/worker-callback", async ({ request }) => {
     return handleStatusCallback({
       request,
