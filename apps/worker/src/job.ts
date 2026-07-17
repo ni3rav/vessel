@@ -38,6 +38,7 @@ export async function processJob(payload: JobPayload): Promise<TranscodeResult> 
       masterPlaylist: "",
       durationSeconds: 0,
       error: `Unsupported file type "${ext}". Only MP3 and WAV are accepted.`,
+      isPermanent: true,
     };
   }
 
@@ -61,6 +62,7 @@ export async function processJob(payload: JobPayload): Promise<TranscodeResult> 
         masterPlaylist: "",
         durationSeconds: 0,
         error: validation.error,
+        isPermanent: true,
       };
     }
 
@@ -146,6 +148,7 @@ export async function processJob(payload: JobPayload): Promise<TranscodeResult> 
       masterPlaylist: "",
       durationSeconds: 0,
       error,
+      isPermanent: false,
     };
   } finally {
     // 6. Always clean up local temp + output files

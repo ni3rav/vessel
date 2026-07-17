@@ -77,22 +77,41 @@ export async function main(): Promise<void> {
     }
 
     const result = await processJob(payload);
-    const callbackStatus = await Promise.resolve(sendWorkerCallback(payload, result)).then(
-      () => true,
-      (error) => {
-        logger.error("Worker callback failed", { id: payload.id, error: String(error) });
-        return false;
+
+    if (result.success) {
+      const callbackStatus = await Promise.resolve(sendWorkerCallback(payload, result)).then(
+        () => true,
+        (error) => {
+          logger.error("Worker callback failed", { id: payload.id, error: String(error) });
+          return false;
+        }
+      );
+
+      process.stdout.write(JSON.stringify(result) + "\n");
+
+      if (callbackStatus) {
+        await receiver.completeMessage(message);
+        process.exit(0);
+      } else {
+        await receiver.abandonMessage(message);
+        process.exit(1);
       }
-    );
-
-    process.stdout.write(JSON.stringify(result) + "\n");
-
-    if (result.success && callbackStatus) {
-      await receiver.completeMessage(message);
-      process.exit(0);
     } else {
-      await receiver.abandonMessage(message);
-      process.exit(1);
+      process.stdout.write(JSON.stringify(result) + "\n");
+
+      if (result.isPermanent) {
+        await Promise.resolve(sendWorkerCallback(payload, result)).catch((error) => {
+          logger.error("Worker callback failed", { id: payload.id, error: String(error) });
+        });
+        await receiver.deadLetterMessage(message, {
+          deadLetterReason: "ValidationError",
+          deadLetterErrorDescription: result.error || "Validation failed",
+        });
+        process.exit(0);
+      } else {
+        await receiver.abandonMessage(message);
+        process.exit(1);
+      }
     }
   } catch (err) {
     logger.error("Unhandled error in worker", { error: String(err) });

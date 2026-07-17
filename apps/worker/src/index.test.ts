@@ -122,4 +122,56 @@ describe("Worker Entry Point - Success Path", () => {
     expect(mockReceiverClose).toHaveBeenCalled();
     expect(mockClientClose).toHaveBeenCalled();
   });
+
+  it("handles permanent failures by dead-lettering and sending callback with exit 0", async () => {
+    const payload = {
+      id: "job-123",
+      key: "uploads/user-1/job-123/track.mp3",
+      filename: "track.mp3",
+      userid: "user-1",
+      jobSecret: "secret-xyz",
+    };
+    const mockMessage = { body: payload };
+    mockReceiveMessages.mockResolvedValue([mockMessage]);
+    mockProcessJob.mockResolvedValue({ success: false, isPermanent: true, error: "Unsupported file format" });
+    mockSendWorkerCallback.mockResolvedValue(undefined);
+
+    await main();
+
+    expect(mockProcessJob).toHaveBeenCalledWith(payload);
+    expect(mockSendWorkerCallback).toHaveBeenCalledWith(payload, {
+      success: false,
+      isPermanent: true,
+      error: "Unsupported file format",
+    });
+    expect(mockDeadLetterMessage).toHaveBeenCalledWith(mockMessage, {
+      deadLetterReason: "ValidationError",
+      deadLetterErrorDescription: "Unsupported file format",
+    });
+    expect(mockCompleteMessage).not.toHaveBeenCalled();
+    expect(mockAbandonMessage).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it("handles transient failures by abandoning and skipping callback with exit 1", async () => {
+    const payload = {
+      id: "job-123",
+      key: "uploads/user-1/job-123/track.mp3",
+      filename: "track.mp3",
+      userid: "user-1",
+      jobSecret: "secret-xyz",
+    };
+    const mockMessage = { body: payload };
+    mockReceiveMessages.mockResolvedValue([mockMessage]);
+    mockProcessJob.mockResolvedValue({ success: false, isPermanent: false, error: "Download failed" });
+
+    await main();
+
+    expect(mockProcessJob).toHaveBeenCalledWith(payload);
+    expect(mockSendWorkerCallback).not.toHaveBeenCalled();
+    expect(mockAbandonMessage).toHaveBeenCalledWith(mockMessage);
+    expect(mockCompleteMessage).not.toHaveBeenCalled();
+    expect(mockDeadLetterMessage).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
 });

@@ -32,6 +32,7 @@ export interface TranscodeResult {
   masterPlaylist: string; // R2 key
   durationSeconds: number;
   error?: string;
+  isPermanent?: boolean;
 }
 
 export interface FfprobeOutput {
