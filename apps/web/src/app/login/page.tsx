@@ -1,4 +1,5 @@
 import { Login } from "@/components/login";
+import { requireGuest } from "@/lib/auth-guard";
 import { Suspense } from "react";
 
 function LoginFallback() {
@@ -9,7 +10,9 @@ function LoginFallback() {
   );
 }
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  await requireGuest("/library");
+
   return (
     <Suspense fallback={<LoginFallback />}>
       <Login />

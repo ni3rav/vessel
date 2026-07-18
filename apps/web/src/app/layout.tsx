@@ -32,13 +32,11 @@ export default function RootLayout({
     <html
       lang="en"
       className={cn(
-        "h-full",
-        "antialiased",
+        "dark h-full antialiased font-sans",
         geistSans.variable,
         geistMono.variable,
-        "font-sans",
         nunitoSans.variable,
-        notoSansHeading.variable
+        notoSansHeading.variable,
       )}
     >
       <body className="min-h-dvh bg-background text-foreground">

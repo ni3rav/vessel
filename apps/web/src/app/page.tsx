@@ -1,6 +1,14 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
-export default function Home() {
+import { getServerSession } from "@/lib/auth-guard";
+
+export default async function Home() {
+  const session = await getServerSession();
+  if (session) {
+    redirect("/library");
+  }
+
   return (
     <section className="flex w-full max-w-2xl flex-col items-center justify-center py-16 sm:py-24">
       <h1 className="font-heading text-center text-5xl font-semibold tracking-tight text-foreground sm:text-6xl">

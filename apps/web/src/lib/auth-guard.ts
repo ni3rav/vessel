@@ -18,7 +18,7 @@ export async function requireSession(redirectTo = "/login") {
   return session;
 }
 
-export async function requireGuest(redirectTo = "/") {
+export async function requireGuest(redirectTo = "/library") {
   const session = await getServerSession();
 
   if (session) {
