@@ -130,18 +130,21 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
       return new Response("Failed to complete upload", { status: 500 });
     }
 
-    void triggerProcessingJob({
-      id,
-      key,
-      filename,
-      userId: session.user.id,
-      jobSecret,
-    }).catch(async (triggerError) => {
+    const { error: publishError } = await tryCatch(
+      triggerProcessingJob({
+        id,
+        key,
+        filename,
+        userId: session.user.id,
+        jobSecret,
+      }),
+    );
+    if (publishError) {
       console.error("[upload.complete] Service Bus publish failed", {
         uploadId: id,
         userId: session.user.id,
         key,
-        error: triggerError,
+        error: publishError,
       });
       await handlePublishFailure(
         { id, userId: session.user.id, key },
@@ -156,7 +159,8 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
             deleteObject(r2, { bucket: env.R2_BUCKET, key: objectKey }).then(() => undefined),
         },
       );
-    });
+      return new Response("Failed to enqueue processing job", { status: 500 });
+    }
 
     return { id, publicUrl };
   });
