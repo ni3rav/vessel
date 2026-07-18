@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Loader2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -9,17 +10,9 @@ type Props = {
   onConfirm: () => void | Promise<void>;
   disabled?: boolean;
   className?: string;
-  idleLabel?: string;
-  confirmLabel?: string;
 };
 
-export function ConfirmDeleteButton({
-  onConfirm,
-  disabled = false,
-  className,
-  idleLabel = "Delete",
-  confirmLabel = "Confirm",
-}: Props) {
+export function ConfirmDeleteButton({ onConfirm, disabled = false, className }: Props) {
   const [armed, setArmed] = useState(false);
   const [pending, setPending] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -65,12 +58,14 @@ export function ConfirmDeleteButton({
     <div ref={rootRef} className={cn("inline-flex", className)}>
       <Button
         type="button"
-        size="sm"
+        size="icon-sm"
         variant={showConfirm ? "destructive" : "ghost"}
         disabled={disabled || pending}
         aria-expanded={showConfirm}
+        aria-label={pending ? "Deleting" : showConfirm ? "Confirm delete" : "Delete"}
+        title={disabled ? "Unavailable while processing" : showConfirm ? "Confirm delete" : "Delete"}
         className={cn(
-          "h-8 min-w-18 rounded-full px-3 text-xs transition-all duration-200",
+          "size-8 shrink-0 rounded-full transition-all duration-200",
           showConfirm
             ? "text-destructive"
             : "text-muted-foreground hover:text-foreground",
@@ -80,7 +75,13 @@ export function ConfirmDeleteButton({
           void handleClick();
         }}
       >
-        {pending ? "Deleting…" : showConfirm ? confirmLabel : idleLabel}
+        {pending ? (
+          <Loader2 className="size-3.5 animate-spin" aria-hidden />
+        ) : showConfirm ? (
+          <Check className="size-3.5" aria-hidden />
+        ) : (
+          <Trash2 className="size-3.5" aria-hidden />
+        )}
       </Button>
     </div>
   );

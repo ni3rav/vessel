@@ -32,12 +32,6 @@ export function AuthNavLinks() {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2 text-sm font-medium tracking-wide">
-        <Link
-          href="/library"
-          className="mr-1 font-heading text-sm font-semibold tracking-tight text-foreground transition-colors hover:text-foreground/90 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          Vessel
-        </Link>
         {LINKS.map(({ href, label }) => {
           const active = pathname === href;
 

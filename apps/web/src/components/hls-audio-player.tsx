@@ -3,17 +3,18 @@
 import Hls from "hls.js";
 import {
   AlertCircle,
-  ChevronDown,
   Pause,
   Play,
+  Settings2,
   SkipBack,
   SkipForward,
 } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, Ref } from "react";
 import {
   useCallback,
   useEffect,
   useId,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -48,6 +49,12 @@ type Props = {
   onNext?: () => void;
   canPrevious?: boolean;
   canNext?: boolean;
+  controlsRef?: Ref<HlsPlayerControls | null>;
+};
+
+export type HlsPlayerControls = {
+  togglePlay: () => void;
+  seekBy: (deltaSeconds: number) => void;
 };
 
 function formatWallClock(seconds: number) {
@@ -109,6 +116,7 @@ export function HlsAudioPlayer({
   onNext,
   canPrevious = false,
   canNext = false,
+  controlsRef,
 }: Props) {
   const displayTitle = title ?? label;
   const isDock = variant === "dock";
@@ -329,6 +337,15 @@ export function HlsAudioPlayer({
     audio.currentTime = Math.min(audio.duration, Math.max(0, audio.currentTime + deltaSeconds));
   }, []);
 
+  useImperativeHandle(
+    controlsRef,
+    () => ({
+      togglePlay,
+      seekBy,
+    }),
+    [togglePlay, seekBy],
+  );
+
   const onSeekSliderChange = useCallback((v: number[]) => {
     const t = v[0] ?? 0;
     setScrubbing(t);
@@ -421,37 +438,36 @@ export function HlsAudioPlayer({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            "gap-1.5 font-normal text-muted-foreground",
-            isDock ? "h-8 px-2.5" : "h-9 px-3",
-          )}
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-8 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+          aria-label={`Stream quality: ${qualityTriggerLabel}`}
+          title={`Quality · ${qualityTriggerLabel}`}
         >
-          <span
-            className={cn(
-              "truncate text-left text-xs tabular-nums",
-              isDock ? "max-w-20 sm:max-w-28" : "max-w-34 sm:max-w-44",
-            )}
-          >
-            {isDock ? (qualityChoice === "auto" ? "Auto" : qualityTriggerLabel) : qualityTriggerLabel}
-          </span>
-          <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
+          <Settings2 className="size-3.5" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Stream quality</DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="w-52 rounded-xl p-1.5">
+        <DropdownMenuLabel className="px-2.5">Quality</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuRadioGroup
           value={qualityChoice === "auto" ? "auto" : String(qualityChoice)}
           onValueChange={applyQuality}
         >
-          <DropdownMenuRadioItem value="auto">Auto (recommended)</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="auto" className="rounded-lg px-2.5">
+            Auto
+            {activeBitrate ? (
+              <span className="ml-auto pl-3 text-xs text-muted-foreground tabular-nums">
+                {formatBitrate(activeBitrate)}
+              </span>
+            ) : null}
+          </DropdownMenuRadioItem>
           {[...mseLevels]
             .slice()
             .sort((a, b) => b.bitrate - a.bitrate)
             .map((lvl) => (
-              <DropdownMenuRadioItem key={lvl.index} value={String(lvl.index)}>
+              <DropdownMenuRadioItem key={lvl.index} value={String(lvl.index)} className="rounded-lg px-2.5">
                 {lvl.label}
               </DropdownMenuRadioItem>
             ))}
