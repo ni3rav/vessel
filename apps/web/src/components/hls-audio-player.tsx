@@ -40,6 +40,8 @@ type Props = {
   title?: string;
   /** Secondary line under title (e.g. date added) */
   subtitle?: string;
+  /** full = card player; dock = slim bottom bar */
+  variant?: "full" | "dock";
 };
 
 function formatWallClock(seconds: number) {
@@ -90,8 +92,16 @@ function useAudioPlaybackCaps() {
   }, [mounted]);
 }
 
-export function HlsAudioPlayer({ hlsUrl, fallbackUrl, label, title, subtitle }: Props) {
+export function HlsAudioPlayer({
+  hlsUrl,
+  fallbackUrl,
+  label,
+  title,
+  subtitle,
+  variant = "full",
+}: Props) {
   const displayTitle = title ?? label;
+  const isDock = variant === "dock";
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -396,6 +406,146 @@ export function HlsAudioPlayer({ hlsUrl, fallbackUrl, label, title, subtitle }: 
 
   const hintsId = useId();
 
+  const qualityMenu = qualityMenuOpen ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            "gap-1.5 font-normal text-muted-foreground",
+            isDock ? "h-8 px-2.5" : "h-9 px-3",
+          )}
+        >
+          <span
+            className={cn(
+              "truncate text-left text-xs tabular-nums",
+              isDock ? "max-w-20 sm:max-w-28" : "max-w-34 sm:max-w-44",
+            )}
+          >
+            {isDock ? (qualityChoice === "auto" ? "Auto" : qualityTriggerLabel) : qualityTriggerLabel}
+          </span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>Stream quality</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup
+          value={qualityChoice === "auto" ? "auto" : String(qualityChoice)}
+          onValueChange={applyQuality}
+        >
+          <DropdownMenuRadioItem value="auto">Auto (recommended)</DropdownMenuRadioItem>
+          {[...mseLevels]
+            .slice()
+            .sort((a, b) => b.bitrate - a.bitrate)
+            .map((lvl) => (
+              <DropdownMenuRadioItem key={lvl.index} value={String(lvl.index)}>
+                {lvl.label}
+              </DropdownMenuRadioItem>
+            ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
+  if (isDock) {
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        <audio ref={audioRef} preload="metadata" aria-label={label} className="sr-only" />
+
+        {playbackError ? (
+          <div
+            className="flex items-center justify-between gap-3 px-1 py-1"
+            role="alert"
+          >
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <AlertCircle className="size-3.5 shrink-0" aria-hidden />
+              <span className="truncate">{playbackError}</span>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 text-xs"
+              onClick={playOriginalFile}
+            >
+              Original
+            </Button>
+          </div>
+        ) : (
+          <div
+            role="region"
+            aria-label={label}
+            aria-describedby={hintsId}
+            tabIndex={0}
+            onKeyDown={onKeyDown}
+            className={cn(
+              "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              caps === null && "pointer-events-none opacity-50",
+            )}
+          >
+            <span id={hintsId} className="sr-only">
+              Press Space to play or pause. Arrow keys seek by five seconds when the player is focused.
+            </span>
+
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                size="icon"
+                className="size-10 shrink-0 rounded-full touch-manipulation"
+                aria-label={playing ? `Pause ${displayTitle}` : `Play ${displayTitle}`}
+                disabled={caps === null}
+                onClick={togglePlay}
+              >
+                {playing ? (
+                  <Pause className="fill-current" aria-hidden />
+                ) : (
+                  <Play className="fill-current pl-0.5" aria-hidden />
+                )}
+              </Button>
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium leading-tight text-foreground">
+                  {displayTitle}
+                </p>
+                <div className="mt-1.5">
+                  <div className="relative py-0.5">
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-x-0 top-1/2 z-0 h-1 -translate-y-1/2 rounded-full bg-muted"
+                    />
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute left-0 top-1/2 z-0 h-1 max-w-full -translate-y-1/2 rounded-full bg-muted-foreground/20"
+                      style={{ width: `${bufferedEndRatio * 100}%` }}
+                    />
+                    <Slider
+                      disabled={seekDisabled || caps === null}
+                      min={0}
+                      max={seekMax}
+                      step={0.25}
+                      value={seekValue}
+                      onValueChange={onSeekSliderChange}
+                      onValueCommit={onSeekSliderCommit}
+                      className="relative z-10 w-full **:data-[slot=slider-track]:h-1 **:data-[slot=slider-track]:bg-transparent **:data-[slot=slider-range]:bg-primary **:data-[slot=slider-thumb]:size-3.5 **:data-[slot=slider-thumb]:border-border"
+                    />
+                  </div>
+                  <div className="mt-1 flex justify-between gap-3 tabular-nums text-[11px] text-muted-foreground">
+                    <span>{formatWallClock(elapsed)}</span>
+                    <span>−{formatWallClock(remaining)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0">{qualityMenu}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full flex-col gap-3">
       <audio ref={audioRef} preload="metadata" aria-label={label} className="sr-only" />
@@ -441,40 +591,8 @@ export function HlsAudioPlayer({ hlsUrl, fallbackUrl, label, title, subtitle }: 
                 </div>
               </div>
               <div className="shrink-0 pt-px">
-                {qualityMenuOpen ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 gap-1.5 px-3 font-normal text-muted-foreground"
-                      >
-                        <span className="max-w-34 truncate text-left text-xs tabular-nums sm:max-w-44">
-                          {qualityTriggerLabel}
-                        </span>
-                        <ChevronDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuLabel>Stream quality</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuRadioGroup
-                        value={qualityChoice === "auto" ? "auto" : String(qualityChoice)}
-                        onValueChange={applyQuality}
-                      >
-                        <DropdownMenuRadioItem value="auto">Auto (recommended)</DropdownMenuRadioItem>
-                        {[...mseLevels]
-                          .slice()
-                          .sort((a, b) => b.bitrate - a.bitrate)
-                          .map((lvl) => (
-                            <DropdownMenuRadioItem key={lvl.index} value={String(lvl.index)}>
-                              {lvl.label}
-                            </DropdownMenuRadioItem>
-                          ))}
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : engine === "mse-hls" && mseLevels.length === 1 ? (
+                {qualityMenu}
+                {!qualityMenuOpen && engine === "mse-hls" && mseLevels.length === 1 ? (
                   <span className="block max-w-40 truncate text-right text-xs tabular-nums text-muted-foreground sm:max-w-none">
                     {mseLevels[0]?.label ?? "One stream"}
                   </span>

@@ -3,16 +3,11 @@
 import { CircleAlert, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { HlsAudioPlayer } from "@/components/hls-audio-player";
 import { Button } from "@/components/ui/button";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { deriveHlsMasterKeyFromUploadKey, joinPublicObjectUrl } from "@/lib/upload-hls";
 import { cn } from "@/lib/utils";
 
@@ -40,35 +35,26 @@ function formatCreatedAt(iso: string) {
   }).format(d);
 }
 
-function LibraryTrackRow({
-  upload,
-  active,
-  onSelect,
-}: {
-  upload: LibraryUploadRow;
-  active: boolean;
-  onSelect: () => void;
-}) {
+function StatusChip({ status }: { status: LibraryUploadRow["status"] }) {
+  if (status === "ready") {
+    return (
+      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tracking-wide text-muted-foreground">
+        Ready
+      </span>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <span className="shrink-0 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium tracking-wide text-destructive">
+        Failed
+      </span>
+    );
+  }
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onSelect}
-        className={cn(
-          "relative flex w-full touch-manipulation flex-col gap-0 rounded-lg py-2 pr-2 pl-4 text-left transition-colors duration-150",
-          active
-            ? "text-foreground before:absolute before:top-1/2 before:left-0 before:h-7 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary"
-            : "text-foreground/88 hover:text-foreground",
-        )}
-      >
-        <div className="flex min-w-0 flex-col gap-0">
-          <span className={cn("block truncate font-medium leading-snug", active ? "text-foreground" : "text-foreground/90")}>
-            {upload.filename}
-          </span>
-          <span className="block truncate text-xs leading-tight text-muted-foreground">{formatCreatedAt(upload.createdAt)}</span>
-        </div>
-      </button>
-    </li>
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium tracking-wide text-primary">
+      <Loader2 className="size-3 animate-spin" aria-hidden />
+      {status === "uploading" ? "Uploading" : "Processing"}
+    </span>
   );
 }
 
@@ -77,21 +63,20 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
+  const prevStatuses = useRef<Map<string, LibraryUploadRow["status"]> | null>(null);
 
   const pending = useMemo(
     () => uploads.filter((u) => u.status === "uploading" || u.status === "processing"),
     [uploads],
   );
-  const ready = useMemo(() => uploads.filter((u) => u.status === "ready"), [uploads]);
-  const failed = useMemo(() => uploads.filter((u) => u.status === "failed"), [uploads]);
 
-  const defaultAccordionValues = useMemo(() => {
-    const values: string[] = [];
-    if (pending.length) values.push("processing");
-    if (ready.length) values.push("ready");
-    if (failed.length && pending.length === 0 && ready.length === 0) values.push("failed");
-    return values;
-  }, [pending.length, ready.length, failed.length]);
+  const sorted = useMemo(
+    () =>
+      [...uploads].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      ),
+    [uploads],
+  );
 
   useEffect(() => {
     if (pending.length === 0) return;
@@ -103,13 +88,31 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
     };
   }, [pending.length, router]);
 
+  useEffect(() => {
+    const prev = prevStatuses.current;
+    if (prev) {
+      for (const upload of uploads) {
+        const prior = prev.get(upload.id);
+        if (!prior || prior === upload.status) continue;
+        if (upload.status === "ready") {
+          toast.success(`${upload.filename} is ready to play.`);
+        } else if (upload.status === "failed") {
+          toast.error(`${upload.filename} failed to process.`);
+        }
+      }
+    }
+    prevStatuses.current = new Map(uploads.map((u) => [u.id, u.status]));
+  }, [uploads]);
+
   if (uploads.length === 0) {
     return (
       <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-6 px-4 text-center">
         <div className="max-w-sm space-y-2">
-          <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Your library is empty</h1>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
+            Your library is empty
+          </h1>
           <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
-            Upload a track — when it&apos;s ready, it&apos;ll land here with adaptive streaming.
+            Upload a track — processing usually takes up to about 5 minutes, then it lands here.
           </p>
         </div>
         <Button asChild size="lg" className="rounded-full px-8">
@@ -119,11 +122,12 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
     );
   }
 
-  const selected = uploads.find((u) => u.id === selectedId) ?? uploads[0];
+  const selected = uploads.find((u) => u.id === selectedId) ?? sorted[0];
   const handleSelect = (id: string) => {
     setSelectedId(id);
     const next = new URLSearchParams(searchParams.toString());
     next.set("selected", id);
+    next.delete("uploadId");
     router.replace(`${pathname}?${next.toString()}`, { scroll: false });
   };
 
@@ -131,170 +135,98 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
   const hlsUrl =
     masterKey !== null ? joinPublicObjectUrl(r2PublicBaseUrl, masterKey) : selected.publicUrl;
 
-  const playerLabel = selected.filename;
-
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
-      <section aria-labelledby="now-playing-heading" className="flex w-full min-w-0 flex-col">
-        <p
-          id="now-playing-heading"
-          className="mb-3 font-heading text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-        >
-          Now playing
-        </p>
-
-        {selected.status === "uploading" || selected.status === "processing" ? (
-          <div
-            className="flex flex-col gap-4 rounded-lg border border-border bg-muted/30 px-4 py-5 text-center sm:flex-row sm:items-center sm:text-left"
-            aria-busy="true"
-          >
-            <Loader2 className="mx-auto size-9 shrink-0 animate-spin text-primary sm:mx-0" aria-hidden />
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="font-heading text-base font-semibold text-foreground">
-                {selected.status === "uploading" ? "Finishing upload" : "Processing"}
-              </p>
-              <p className="text-pretty text-sm text-muted-foreground">
-                This usually finishes quickly. Status updates automatically every 7 seconds.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-1"
-                onClick={() => router.refresh()}
-              >
-                Refresh status
-              </Button>
-            </div>
-          </div>
-        ) : selected.status === "failed" ? (
-          <div className="flex flex-col gap-4 rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-5 sm:flex-row sm:items-start">
-            <CircleAlert className="mx-auto size-9 shrink-0 text-destructive/90 sm:mx-0" aria-hidden />
-            <div className="min-w-0 flex-1 space-y-2 text-center sm:text-left">
-              <p className="font-heading text-base font-semibold text-foreground">Couldn&apos;t process this one</p>
-              <p className="text-pretty text-sm text-muted-foreground">
-                Nothing&apos;s wrong on your side — try uploading again whenever you like.
-              </p>
-              <Button asChild variant="outline" size="sm" className="mt-1">
-                <Link href="/upload">Upload again</Link>
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <HlsAudioPlayer
-            key={selected.id}
-            hlsUrl={hlsUrl}
-            fallbackUrl={selected.publicUrl}
-            label={playerLabel}
-            title={selected.filename}
-            subtitle={`Added ${formatCreatedAt(selected.createdAt)}`}
-          />
-        )}
-      </section>
-
-      <aside className="flex w-full flex-col border-t border-border pt-6">
-        <h2 className="font-heading text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+    <div className="mx-auto flex w-full max-w-2xl flex-col pb-28">
+      <header className="mb-6">
+        <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
           Library
-        </h2>
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {uploads.length} {uploads.length === 1 ? "item" : "items"}
+          {uploads.length} {uploads.length === 1 ? "track" : "tracks"}
+          {pending.length > 0
+            ? ` · ${pending.length} processing (usually up to about 5 minutes)`
+            : null}
         </p>
+      </header>
 
-        <div className="mt-4 max-h-[min(28rem,52dvh)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] pr-1">
-          <Accordion
-            type="multiple"
-            defaultValue={defaultAccordionValues}
-            className="flex w-full flex-col gap-2 pb-2"
-            aria-label="Library by status"
-          >
-            {pending.length > 0 ? (
-              <AccordionItem value="processing" className="border-0 px-0">
-                <AccordionTrigger className="rounded-lg px-2 py-2.5 text-left text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase hover:no-underline">
-                  <span className="flex flex-wrap items-baseline gap-x-1">
-                    <span>Processing</span>
-                    <span className="font-normal tracking-normal text-foreground tabular-nums">
-                      · {pending.length}
-                    </span>
+      <ul className="flex flex-col gap-0.5" aria-label="Tracks">
+        {sorted.map((upload) => {
+          const active = upload.id === selected.id;
+          return (
+            <li key={upload.id}>
+              <button
+                type="button"
+                onClick={() => handleSelect(upload.id)}
+                className={cn(
+                  "relative flex w-full touch-manipulation items-center gap-3 rounded-lg py-3 pr-3 pl-4 text-left transition-colors duration-150",
+                  active
+                    ? "bg-muted/50 text-foreground before:absolute before:top-1/2 before:left-0 before:h-8 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary"
+                    : "text-foreground/88 hover:bg-muted/30 hover:text-foreground",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <span
+                    className={cn(
+                      "block truncate font-medium leading-snug",
+                      active ? "text-foreground" : "text-foreground/90",
+                    )}
+                  >
+                    {upload.filename}
                   </span>
-                </AccordionTrigger>
-                <AccordionContent className="px-0 pb-2">
-                  <ul className="flex flex-col gap-1">
-                    {pending.map((u) => (
-                      <LibraryTrackRow
-                        key={u.id}
-                        upload={u}
-                        active={u.id === selected.id}
-                        onSelect={() => handleSelect(u.id)}
-                      />
-                    ))}
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
-            ) : null}
+                  <span className="mt-0.5 block truncate text-xs leading-tight text-muted-foreground">
+                    {formatCreatedAt(upload.createdAt)}
+                  </span>
+                </div>
+                <StatusChip status={upload.status} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
 
-            {ready.length > 0 ? (
-              <AccordionItem value="ready" className="border-0 px-0">
-                <AccordionTrigger className="rounded-lg px-2 py-2.5 text-left text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase hover:no-underline">
-                  <span className="flex flex-wrap items-baseline gap-x-1">
-                    <span>Ready</span>
-                    <span className="font-normal tracking-normal text-foreground tabular-nums">
-                      · {ready.length}
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="px-0 pb-2">
-                  <ul className="flex flex-col gap-1">
-                    {ready.map((u) => (
-                      <LibraryTrackRow
-                        key={u.id}
-                        upload={u}
-                        active={u.id === selected.id}
-                        onSelect={() => handleSelect(u.id)}
-                      />
-                    ))}
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
-            ) : null}
-
-            {failed.length > 0 ? (
-              <AccordionItem value="failed" className="border-0 px-0">
-                <AccordionTrigger className="rounded-lg px-2 py-2.5 text-left text-xs font-semibold tracking-[0.18em] text-destructive/90 uppercase hover:no-underline">
-                  <span className="flex flex-wrap items-baseline gap-x-1">
-                    <span>Failed</span>
-                    <span className="font-normal tracking-normal text-foreground tabular-nums">
-                      · {failed.length}
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="px-0 pb-2">
-                  <p className="mb-3 border-l-2 border-destructive/35 pl-3 text-pretty text-[11px] leading-relaxed text-muted-foreground">
-                    These entries are only shown temporarily and may be removed automatically when we clean things
-                    up. Try{" "}
-                    <Link
-                      href="/upload"
-                      className="font-medium text-foreground underline-offset-4 transition-colors hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      uploading again
-                    </Link>{" "}
-                    if you still need the file.
-                  </p>
-                  <ul className="flex flex-col gap-1">
-                    {failed.map((u) => (
-                      <LibraryTrackRow
-                        key={u.id}
-                        upload={u}
-                        active={u.id === selected.id}
-                        onSelect={() => handleSelect(u.id)}
-                      />
-                    ))}
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
-            ) : null}
-          </Accordion>
+      <div
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm supports-backdrop-filter:bg-background/85"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto w-full max-w-2xl">
+          {selected.status === "uploading" || selected.status === "processing" ? (
+            <div className="flex items-center gap-3" aria-busy="true">
+              <Loader2 className="size-5 shrink-0 animate-spin text-primary" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{selected.filename}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {selected.status === "uploading"
+                    ? "Finishing upload…"
+                    : "Processing — usually up to about 5 minutes"}
+                </p>
+              </div>
+            </div>
+          ) : selected.status === "failed" ? (
+            <div className="flex items-center gap-3">
+              <CircleAlert className="size-5 shrink-0 text-destructive" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">{selected.filename}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Processing failed — try uploading again
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm" className="h-8 shrink-0">
+                <Link href="/upload">Upload</Link>
+              </Button>
+            </div>
+          ) : (
+            <HlsAudioPlayer
+              key={selected.id}
+              variant="dock"
+              hlsUrl={hlsUrl}
+              fallbackUrl={selected.publicUrl}
+              label={selected.filename}
+              title={selected.filename}
+              subtitle={`Added ${formatCreatedAt(selected.createdAt)}`}
+            />
+          )}
         </div>
-      </aside>
+      </div>
     </div>
   );
 }

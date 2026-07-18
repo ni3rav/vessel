@@ -1,6 +1,6 @@
 "use client";
 
-import { FileAudio, Music2, X } from "lucide-react";
+import { FileAudio, Loader2, Music2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ChangeEvent, DragEvent } from "react";
@@ -38,12 +38,17 @@ const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav"];
 const ALLOWED_EXTENSIONS = [".mp3", ".wav"];
 
+type UploadStage = "idle" | "uploading" | "finalizing";
+
 export default function UploadFlow() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState<UploadStage>("idle");
   const [isUploading, startUploadTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const busy = isUploading || stage !== "idle";
 
   const isSupportedFile = (incomingFile: File) => {
     const ext = `.${incomingFile.name.split(".").pop()?.toLowerCase() ?? ""}`;
@@ -76,9 +81,10 @@ export default function UploadFlow() {
   };
 
   const resetFile = () => {
-    if (isUploading) return;
+    if (busy) return;
     setFile(null);
     setProgress(0);
+    setStage("idle");
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -90,6 +96,7 @@ export default function UploadFlow() {
     startUploadTransition(async () => {
       const uploadToastId = toast.loading("Preparing upload...");
       setProgress(0);
+      setStage("uploading");
 
       const { data: presignRes, error: presignNetworkError } = await tryCatch(
         fetch("/api/upload/presign", {
@@ -100,11 +107,13 @@ export default function UploadFlow() {
       );
       if (presignNetworkError) {
         toast.error("Could not reach server.", { id: uploadToastId });
+        setStage("idle");
         return;
       }
       if (!presignRes.ok) {
         const msg = presignRes.status === 401 ? "Not authenticated." : await presignRes.text();
         toast.error(msg || "Could not prepare upload.", { id: uploadToastId });
+        setStage("idle");
         return;
       }
       toast.loading("Uploading file...", { id: uploadToastId });
@@ -119,11 +128,16 @@ export default function UploadFlow() {
         uploadFileToR2(uploadUrl, file, file.type, setProgress),
       );
       if (r2Error) {
-        toast.error(r2Error instanceof Error ? r2Error.message : "Upload to storage failed.", { id: uploadToastId });
+        toast.error(r2Error instanceof Error ? r2Error.message : "Upload to storage failed.", {
+          id: uploadToastId,
+        });
         setProgress(0);
+        setStage("idle");
         return;
       }
-      toast.loading("Finalizing upload...", { id: uploadToastId });
+
+      setStage("finalizing");
+      toast.loading("Finalizing...", { id: uploadToastId });
 
       const { data: completeRes, error: completeNetworkError } = await tryCatch(
         fetch("/api/upload/complete", {
@@ -134,12 +148,16 @@ export default function UploadFlow() {
       );
       if (completeNetworkError || !completeRes.ok) {
         toast.error("File uploaded, but finalizing failed. Please try again.", { id: uploadToastId });
+        setStage("idle");
         return;
       }
       const completeData = (await completeRes.json()) as { id: string; publicUrl: string };
 
-      toast.success(`${file.name} uploaded. Opening library...`, { id: uploadToastId });
-      resetFile();
+      toast.success("Queued for processing. Opening library…", { id: uploadToastId });
+      setFile(null);
+      setProgress(0);
+      setStage("idle");
+      if (fileInputRef.current) fileInputRef.current.value = "";
       router.push(`/library?uploadId=${encodeURIComponent(completeData.id)}`);
     });
   };
@@ -163,7 +181,8 @@ export default function UploadFlow() {
           Add music
         </h1>
         <p className="max-w-md text-pretty text-sm leading-relaxed text-muted-foreground">
-          Drop an MP3 or WAV file. After processing, it appears in{" "}
+          Drop an MP3 or WAV. After upload, processing usually takes up to about 5 minutes — then it
+          appears in{" "}
           <Link
             href="/library"
             className="font-medium text-foreground underline-offset-4 transition-colors hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -204,7 +223,7 @@ export default function UploadFlow() {
                 accept=".mp3,.wav,audio/mpeg,audio/wav"
                 onChange={handleFileChange}
                 ref={fileInputRef}
-                disabled={isUploading}
+                disabled={busy}
               />
             </label>
           </div>
@@ -223,7 +242,7 @@ export default function UploadFlow() {
             className="absolute top-2 right-2 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label="Remove file"
             onClick={resetFile}
-            disabled={isUploading}
+            disabled={busy}
           >
             <X className="size-5 shrink-0" aria-hidden />
           </Button>
@@ -240,10 +259,25 @@ export default function UploadFlow() {
         </div>
       ) : null}
 
-      {isUploading ? (
-        <div className="mt-8 space-y-2">
+      {stage === "uploading" ? (
+        <div className="mt-8 space-y-2" aria-busy="true">
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>Uploading</span>
+            <span className="tabular-nums">{progress}%</span>
+          </div>
           <Progress value={progress} className="h-1.5 bg-muted/80" />
-          <p className="text-right text-xs tabular-nums text-muted-foreground">{progress}%</p>
+        </div>
+      ) : null}
+
+      {stage === "finalizing" ? (
+        <div className="mt-8 space-y-2" aria-busy="true">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+            <span>Finalizing — queuing for processing</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted/80">
+            <div className="h-full w-1/3 animate-pulse rounded-full bg-primary/80" />
+          </div>
         </div>
       ) : null}
 
@@ -253,17 +287,21 @@ export default function UploadFlow() {
           variant="ghost"
           className="w-full rounded-full touch-manipulation sm:w-auto sm:min-w-36"
           onClick={resetFile}
-          disabled={!file || isUploading}
+          disabled={!file || busy}
         >
           Cancel
         </Button>
         <Button
           type="button"
           className="w-full rounded-full px-8 touch-manipulation sm:w-auto sm:min-w-36"
-          disabled={!file || isUploading}
+          disabled={!file || busy}
           onClick={handleUpload}
         >
-          {isUploading ? "Uploading…" : "Upload"}
+          {stage === "uploading"
+            ? "Uploading…"
+            : stage === "finalizing"
+              ? "Finalizing…"
+              : "Upload"}
         </Button>
       </div>
     </section>
