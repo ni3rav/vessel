@@ -6,6 +6,8 @@ import {
   ChevronDown,
   Pause,
   Play,
+  SkipBack,
+  SkipForward,
 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import {
@@ -42,6 +44,10 @@ type Props = {
   subtitle?: string;
   /** full = card player; dock = slim bottom bar */
   variant?: "full" | "dock";
+  onPrevious?: () => void;
+  onNext?: () => void;
+  canPrevious?: boolean;
+  canNext?: boolean;
 };
 
 function formatWallClock(seconds: number) {
@@ -99,9 +105,14 @@ export function HlsAudioPlayer({
   title,
   subtitle,
   variant = "full",
+  onPrevious,
+  onNext,
+  canPrevious = false,
+  canNext = false,
 }: Props) {
   const displayTitle = title ?? label;
   const isDock = variant === "dock";
+  const showSkip = Boolean(onPrevious || onNext);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -489,7 +500,21 @@ export function HlsAudioPlayer({
               Press Space to play or pause. Arrow keys seek by five seconds when the player is focused.
             </span>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {showSkip ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-9 shrink-0 rounded-full touch-manipulation"
+                  aria-label="Previous track"
+                  disabled={!canPrevious}
+                  onClick={onPrevious}
+                >
+                  <SkipBack className="size-4 fill-current" aria-hidden />
+                </Button>
+              ) : null}
+
               <Button
                 type="button"
                 size="icon"
@@ -504,6 +529,20 @@ export function HlsAudioPlayer({
                   <Play className="fill-current pl-0.5" aria-hidden />
                 )}
               </Button>
+
+              {showSkip ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-9 shrink-0 rounded-full touch-manipulation"
+                  aria-label="Next track"
+                  disabled={!canNext}
+                  onClick={onNext}
+                >
+                  <SkipForward className="size-4 fill-current" aria-hidden />
+                </Button>
+              ) : null}
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium leading-tight text-foreground">

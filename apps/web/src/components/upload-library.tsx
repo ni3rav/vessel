@@ -1,13 +1,15 @@
 "use client";
 
-import { CircleAlert, Loader2 } from "lucide-react";
+import { CircleAlert, Loader2, SkipBack, SkipForward } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { HlsAudioPlayer } from "@/components/hls-audio-player";
 import { Button } from "@/components/ui/button";
+import { tryCatch } from "@/lib/try-catch";
 import { deriveHlsMasterKeyFromUploadKey, joinPublicObjectUrl } from "@/lib/upload-hls";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +60,45 @@ function StatusChip({ status }: { status: LibraryUploadRow["status"] }) {
   );
 }
 
+function DockSkipControls({
+  canPrevious,
+  canNext,
+  onPrevious,
+  onNext,
+}: {
+  canPrevious: boolean;
+  canNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="size-9 rounded-full"
+        aria-label="Previous track"
+        disabled={!canPrevious}
+        onClick={onPrevious}
+      >
+        <SkipBack className="size-4 fill-current" aria-hidden />
+      </Button>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="size-9 rounded-full"
+        aria-label="Next track"
+        disabled={!canNext}
+        onClick={onNext}
+      >
+        <SkipForward className="size-4 fill-current" aria-hidden />
+      </Button>
+    </div>
+  );
+}
+
 export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -77,6 +118,20 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
       ),
     [uploads],
   );
+
+  const selected = selectedId ? (uploads.find((u) => u.id === selectedId) ?? null) : null;
+
+  const sortedIndex = selected ? sorted.findIndex((u) => u.id === selected.id) : -1;
+  const previousReady =
+    sortedIndex > 0
+      ? sorted.slice(0, sortedIndex).reverse().find((u) => u.status === "ready")
+      : undefined;
+  const nextReady =
+    sortedIndex >= 0
+      ? sorted.slice(sortedIndex + 1).find((u) => u.status === "ready")
+      : undefined;
+  const canPrevious = Boolean(previousReady);
+  const canNext = Boolean(nextReady);
 
   useEffect(() => {
     if (pending.length === 0) return;
@@ -104,6 +159,50 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
     prevStatuses.current = new Map(uploads.map((u) => [u.id, u.status]));
   }, [uploads]);
 
+  const syncSelectedQuery = (id: string | null) => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("uploadId");
+    if (id) next.set("selected", id);
+    else next.delete("selected");
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  const handleSelect = (id: string) => {
+    setSelectedId(id);
+    syncSelectedQuery(id);
+  };
+
+  const goPrevious = () => {
+    if (previousReady) handleSelect(previousReady.id);
+  };
+
+  const goNext = () => {
+    if (nextReady) handleSelect(nextReady.id);
+  };
+
+  const handleDelete = async (upload: LibraryUploadRow) => {
+    const { data: res, error } = await tryCatch(
+      fetch(`/api/upload/${encodeURIComponent(upload.id)}`, { method: "DELETE" }),
+    );
+    if (error || !res) {
+      toast.error("Could not delete track.");
+      return;
+    }
+    if (!res.ok) {
+      const msg = await res.text();
+      toast.error(msg || "Could not delete track.");
+      return;
+    }
+
+    toast.success("Permanently deleted");
+    if (selectedId === upload.id) {
+      setSelectedId(null);
+      syncSelectedQuery(null);
+    }
+    router.refresh();
+  };
+
   if (uploads.length === 0) {
     return (
       <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-6 px-4 text-center">
@@ -122,21 +221,14 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
     );
   }
 
-  const selected = uploads.find((u) => u.id === selectedId) ?? sorted[0];
-  const handleSelect = (id: string) => {
-    setSelectedId(id);
-    const next = new URLSearchParams(searchParams.toString());
-    next.set("selected", id);
-    next.delete("uploadId");
-    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
-  };
-
-  const masterKey = deriveHlsMasterKeyFromUploadKey(selected.key);
+  const masterKey = selected ? deriveHlsMasterKeyFromUploadKey(selected.key) : null;
   const hlsUrl =
-    masterKey !== null ? joinPublicObjectUrl(r2PublicBaseUrl, masterKey) : selected.publicUrl;
+    selected && masterKey !== null
+      ? joinPublicObjectUrl(r2PublicBaseUrl, masterKey)
+      : selected?.publicUrl ?? "";
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col pb-28">
+    <div className="flex w-full flex-col pb-28">
       <header className="mb-6">
         <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
           Library
@@ -151,20 +243,23 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
 
       <ul className="flex flex-col gap-0.5" aria-label="Tracks">
         {sorted.map((upload) => {
-          const active = upload.id === selected.id;
+          const active = selected?.id === upload.id;
+          const canDelete = upload.status === "ready" || upload.status === "failed";
           return (
             <li key={upload.id}>
-              <button
-                type="button"
-                onClick={() => handleSelect(upload.id)}
+              <div
                 className={cn(
-                  "relative flex w-full touch-manipulation items-center gap-3 rounded-lg py-3 pr-3 pl-4 text-left transition-colors duration-150",
+                  "relative flex w-full items-center gap-2 rounded-lg py-2 pr-2 pl-4 transition-colors duration-150",
                   active
                     ? "bg-muted/50 text-foreground before:absolute before:top-1/2 before:left-0 before:h-8 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary"
                     : "text-foreground/88 hover:bg-muted/30 hover:text-foreground",
                 )}
               >
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => handleSelect(upload.id)}
+                  className="min-w-0 flex-1 touch-manipulation py-1 text-left"
+                >
                   <span
                     className={cn(
                       "block truncate font-medium leading-snug",
@@ -176,9 +271,12 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
                   <span className="mt-0.5 block truncate text-xs leading-tight text-muted-foreground">
                     {formatCreatedAt(upload.createdAt)}
                   </span>
-                </div>
+                </button>
                 <StatusChip status={upload.status} />
-              </button>
+                {canDelete ? (
+                  <ConfirmDeleteButton onConfirm={() => handleDelete(upload)} />
+                ) : null}
+              </div>
             </li>
           );
         })}
@@ -189,8 +287,18 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
         style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
         <div className="mx-auto w-full max-w-2xl">
-          {selected.status === "uploading" || selected.status === "processing" ? (
+          {!selected ? (
+            <p className="py-2 text-center text-sm text-muted-foreground">
+              Select a track to play
+            </p>
+          ) : selected.status === "uploading" || selected.status === "processing" ? (
             <div className="flex items-center gap-3" aria-busy="true">
+              <DockSkipControls
+                canPrevious={canPrevious}
+                canNext={canNext}
+                onPrevious={goPrevious}
+                onNext={goNext}
+              />
               <Loader2 className="size-5 shrink-0 animate-spin text-primary" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-foreground">{selected.filename}</p>
@@ -203,6 +311,12 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
             </div>
           ) : selected.status === "failed" ? (
             <div className="flex items-center gap-3">
+              <DockSkipControls
+                canPrevious={canPrevious}
+                canNext={canNext}
+                onPrevious={goPrevious}
+                onNext={goNext}
+              />
               <CircleAlert className="size-5 shrink-0 text-destructive" aria-hidden />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-foreground">{selected.filename}</p>
@@ -223,6 +337,10 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
               label={selected.filename}
               title={selected.filename}
               subtitle={`Added ${formatCreatedAt(selected.createdAt)}`}
+              onPrevious={goPrevious}
+              onNext={goNext}
+              canPrevious={canPrevious}
+              canNext={canNext}
             />
           )}
         </div>

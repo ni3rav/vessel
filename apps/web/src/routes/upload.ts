@@ -4,9 +4,17 @@ import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { publishTranscodeJob } from "@/lib/service-bus";
 import { handlePublishFailure } from "@/lib/upload-failure";
+import { deriveOutputPrefixFromUploadKey } from "@/lib/upload-hls";
 import { tryCatch } from "@/lib/try-catch";
-import { createR2Client, deleteObject, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
-import { eq } from "drizzle-orm";
+import {
+  createR2Client,
+  deleteObject,
+  deleteObjects,
+  getPresignedUploadUrl,
+  getPublicUrl,
+  listObjectKeys,
+} from "@vessel/r2";
+import { and, eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { nanoid } from "nanoid";
 import { createHash } from "node:crypto";
@@ -163,4 +171,80 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
     }
 
     return { id, publicUrl };
+  })
+  .delete("/:id", async ({ params, request }) => {
+    const { data: session, error: sessionError } = await tryCatch(
+      auth.api.getSession({ headers: request.headers }),
+    );
+    if (sessionError || !session) return new Response("Unauthorized", { status: 401 });
+
+    const id = params.id;
+    if (!id) return new Response("Missing upload id", { status: 400 });
+
+    const { data: row, error: lookupError } = await tryCatch(
+      db
+        .select({
+          id: uploads.id,
+          key: uploads.key,
+          status: uploads.status,
+        })
+        .from(uploads)
+        .where(and(eq(uploads.id, id), eq(uploads.userId, session.user.id)))
+        .then((rows) => rows[0] ?? null),
+    );
+
+    if (lookupError) {
+      console.error("[upload.delete] Lookup failed", { uploadId: id, error: lookupError });
+      return new Response("Failed to delete upload", { status: 500 });
+    }
+    if (!row) return new Response("Upload not found", { status: 404 });
+    if (row.status === "processing" || row.status === "uploading") {
+      return new Response("Cannot delete while processing", { status: 409 });
+    }
+
+    const { error: storageError } = await tryCatch(deleteUploadObjects(row.key));
+    if (storageError) {
+      console.error("[upload.delete] Storage cleanup failed", {
+        uploadId: id,
+        key: row.key,
+        error: storageError,
+      });
+      return new Response("Failed to delete storage objects", { status: 500 });
+    }
+
+    const { error: dbError } = await tryCatch(
+      db.delete(uploads).where(and(eq(uploads.id, id), eq(uploads.userId, session.user.id))),
+    );
+    if (dbError) {
+      console.error("[upload.delete] DB delete failed", { uploadId: id, error: dbError });
+      return new Response("Failed to delete upload", { status: 500 });
+    }
+
+    return { id, deleted: true };
   });
+
+async function deleteUploadObjects(sourceKey: string): Promise<void> {
+  const keys = new Set<string>([sourceKey]);
+  const outputPrefix = deriveOutputPrefixFromUploadKey(sourceKey);
+
+  if (outputPrefix) {
+    const listed = await listObjectKeys(r2, {
+      bucket: env.R2_BUCKET,
+      prefix: `${outputPrefix}/`,
+    });
+    for (const key of listed.keys) keys.add(key);
+  }
+
+  const keyList = [...keys];
+  if (keyList.length === 1) {
+    await deleteObject(r2, { bucket: env.R2_BUCKET, key: keyList[0]! });
+    return;
+  }
+
+  const result = await deleteObjects(r2, { bucket: env.R2_BUCKET, keys: keyList });
+  if (result.failedKeys.length > 0) {
+    throw new Error(
+      `Failed to delete ${result.failedKeys.length} object(s): ${result.failedKeys[0]?.error ?? "unknown"}`,
+    );
+  }
+}

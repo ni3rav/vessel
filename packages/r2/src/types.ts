@@ -47,3 +47,12 @@ export interface DeleteObjectsResult {
   deletedKeys: string[];
   failedKeys: Array<{ key: string; error: string }>;
 }
+
+export interface ListObjectKeysOptions {
+  bucket: string;
+  prefix: string;
+}
+
+export interface ListObjectKeysResult {
+  keys: string[];
+}

@@ -7,8 +7,8 @@ export default function AuthLayout({
   children: ReactNode;
 }>) {
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-8 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2 xl:max-w-7xl">
-      <nav aria-label="Account" className="px-1 sm:px-0">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2">
+      <nav aria-label="Account" className="w-full">
         <AuthNavLinks />
       </nav>
       {children}

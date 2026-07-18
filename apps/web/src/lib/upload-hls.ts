@@ -1,3 +1,8 @@
+export function deriveOutputPrefixFromUploadKey(uploadKey: string): string | null {
+  const masterKey = deriveHlsMasterKeyFromUploadKey(uploadKey);
+  if (!masterKey) return null;
+  return masterKey.replace(/\/master\.m3u8$/, "");
+}
 
 export function deriveHlsMasterKeyFromUploadKey(uploadKey: string): string | null {
   const trimmed = uploadKey.trim().replace(/^\/+/, "");
