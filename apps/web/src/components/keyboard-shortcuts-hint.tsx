@@ -12,12 +12,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const SHORTCUTS = [
-  { keys: "Space", action: "Play / pause" },
+  { keys: "Space", action: "Play / pause current track" },
   { keys: "← / →", action: "Seek 5 seconds" },
-  { keys: "J / K", action: "Previous / next track" },
-  { keys: "↑ / ↓", action: "Move selection in list" },
+  { keys: "J / K", action: "Previous / next playing track" },
+  { keys: "↑ / ↓", action: "Move list selection" },
   { keys: "Enter", action: "Play selected ready track" },
-  { keys: "?", action: "Show shortcuts" },
+  { keys: "Delete", action: "Delete selected (press twice)" },
+  { keys: "?", action: "Toggle shortcuts" },
 ] as const;
 
 type Props = {
@@ -40,7 +41,7 @@ export function KeyboardShortcutsHint({ open, onOpenChange }: Props) {
           <Keyboard className="size-3.5" aria-hidden />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel>Keyboard shortcuts</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <ul className="flex flex-col gap-1 px-1 py-1">
@@ -50,7 +51,7 @@ export function KeyboardShortcutsHint({ open, onOpenChange }: Props) {
               className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm"
             >
               <span className="text-muted-foreground">{row.action}</span>
-              <kbd className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground tabular-nums">
+              <kbd className="shrink-0 rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] text-foreground tabular-nums">
                 {row.keys}
               </kbd>
             </li>

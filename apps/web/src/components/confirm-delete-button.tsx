@@ -10,45 +10,64 @@ type Props = {
   onConfirm: () => void | Promise<void>;
   disabled?: boolean;
   className?: string;
+  armed?: boolean;
+  onArm?: () => void;
+  onDisarm?: () => void;
 };
 
-export function ConfirmDeleteButton({ onConfirm, disabled = false, className }: Props) {
-  const [armed, setArmed] = useState(false);
+export function ConfirmDeleteButton({
+  onConfirm,
+  disabled = false,
+  className,
+  armed: armedProp,
+  onArm,
+  onDisarm,
+}: Props) {
+  const [internalArmed, setInternalArmed] = useState(false);
   const [pending, setPending] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const controlled = armedProp !== undefined;
+  const armed = controlled ? Boolean(armedProp) : internalArmed;
+  const showConfirm = armed && !disabled;
 
   useEffect(() => {
     if (!armed) return;
 
+    const disarm = () => {
+      if (!controlled) setInternalArmed(false);
+      onDisarm?.();
+    };
+
     const onPointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
-        setArmed(false);
+        disarm();
       }
     };
 
-    const timer = window.setTimeout(() => setArmed(false), 4000);
+    const timer = window.setTimeout(disarm, 4000);
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       window.clearTimeout(timer);
     };
-  }, [armed]);
-
-  const showConfirm = armed && !disabled;
+  }, [armed, controlled, onDisarm]);
 
   const handleClick = async () => {
     if (disabled || pending) return;
 
     if (!showConfirm) {
-      setArmed(true);
+      if (!controlled) setInternalArmed(true);
+      onArm?.();
       return;
     }
 
     setPending(true);
     try {
       await onConfirm();
-      setArmed(false);
+      if (!controlled) setInternalArmed(false);
+      onDisarm?.();
     } finally {
       setPending(false);
     }
