@@ -6,13 +6,13 @@ import { JSX, SVGProps, useEffect } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 
-const GoogleIcon = (props: JSX.IntrinsicAttributes & SVGProps<SVGSVGElement>) => (
+const GitHubIcon = (props: JSX.IntrinsicAttributes & SVGProps<SVGSVGElement>) => (
   <svg fill="currentColor" viewBox="0 0 24 24" {...props}>
-    <path d="M3.06364 7.50914C4.70909 4.24092 8.09084 2 12 2C14.6954 2 16.959 2.99095 18.6909 4.60455L15.8227 7.47274C14.7864 6.48185 13.4681 5.97727 12 5.97727C9.39542 5.97727 7.19084 7.73637 6.40455 10.1C6.2045 10.7 6.09086 11.3409 6.09086 12C6.09086 12.6591 6.2045 13.3 6.40455 13.9C7.19084 16.2636 9.39542 18.0227 12 18.0227C13.3454 18.0227 14.4909 17.6682 15.3864 17.0682C16.4454 16.3591 17.15 15.3 17.3818 14.05H12V10.1818H21.4181C21.5364 10.8363 21.6 11.5182 21.6 12.2273C21.6 15.2727 20.5091 17.8363 18.6181 19.5773C16.9636 21.1046 14.7 22 12 22C8.09084 22 4.70909 19.7591 3.06364 16.4909C2.38638 15.1409 2 13.6136 2 12C2 10.3864 2.38638 8.85911 3.06364 7.50914Z" />
+    <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.137 20.162 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
   </svg>
 );
 
-function GoogleSignInButton() {
+function GitHubSignInButton() {
   const { pending } = useFormStatus();
 
   return (
@@ -22,9 +22,9 @@ function GoogleSignInButton() {
       type="submit"
       disabled={pending}
     >
-      <GoogleIcon className="size-5" aria-hidden={true} />
+      <GitHubIcon className="size-5" aria-hidden={true} />
       <span className="text-sm font-medium">
-        {pending ? "Redirecting..." : "Continue with Google"}
+        {pending ? "Redirecting..." : "Continue with GitHub"}
       </span>
     </Button>
   );
@@ -40,9 +40,9 @@ export function Login() {
     }
   }, [session, router]);
 
-  const signInWithGoogle = async () => {
+  const signInWithGitHub = async () => {
     await authClient.signIn.social({
-      provider: "google",
+      provider: "github",
       callbackURL: "/library",
     });
   };
@@ -52,10 +52,10 @@ export function Login() {
       <div className="mb-8 space-y-2 text-center">
         <p className="font-heading text-xs font-semibold tracking-[0.2em] text-muted-foreground uppercase">Welcome</p>
         <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Sign in to Vessel</h1>
-        <p className="text-sm text-muted-foreground">Continue with Google to access upload and library.</p>
+        <p className="text-sm text-muted-foreground">Continue with GitHub to access upload and library.</p>
       </div>
-      <form action={signInWithGoogle}>
-        <GoogleSignInButton />
+      <form action={signInWithGitHub}>
+        <GitHubSignInButton />
       </form>
       <p className="mt-3 text-center text-xs text-muted-foreground">
         We only use your account for authentication.

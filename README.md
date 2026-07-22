@@ -44,7 +44,7 @@ The old diagram is still in `vessel-pipeline.png` if you want a picture; the flo
 
 | Path | What |
 |------|------|
-| `apps/web` | Next.js UI, Better Auth (Google), Elysia routes under `/api/*` |
+| `apps/web` | Next.js UI, Better Auth (GitHub), Elysia routes under `/api/*` |
 | `apps/worker` | One-shot Node + ffmpeg container |
 | `packages/r2` | Shared R2 helpers (presign, upload, delete, list) |
 | `packages/database` | Drizzle bits shared where needed |
@@ -56,7 +56,7 @@ The old diagram is still in `vessel-pipeline.png` if you want a picture; the flo
 ```bash
 pnpm install
 cp apps/web/.env.example apps/web/.env.local
-# fill in DB, R2, Google OAuth, Service Bus, WORKER_SECRET, CRON_SECRET
+# fill in DB, R2, GitHub OAuth, Service Bus, WORKER_SECRET, CRON_SECRET
 pnpm --filter @vessel/web dev
 ```
 
