@@ -2,8 +2,9 @@
 
 import { Button } from "@/components/ui/button";
 import { authClient } from "@/lib/auth-client";
-import { JSX, SVGProps } from "react";
+import { JSX, SVGProps, useEffect } from "react";
 import { useFormStatus } from "react-dom";
+import { useRouter } from "next/navigation";
 
 const GoogleIcon = (props: JSX.IntrinsicAttributes & SVGProps<SVGSVGElement>) => (
   <svg fill="currentColor" viewBox="0 0 24 24" {...props}>
@@ -30,6 +31,15 @@ function GoogleSignInButton() {
 }
 
 export function Login() {
+  const router = useRouter();
+  const { data: session } = authClient.useSession();
+
+  useEffect(() => {
+    if (session) {
+      router.replace("/library");
+    }
+  }, [session, router]);
+
   const signInWithGoogle = async () => {
     await authClient.signIn.social({
       provider: "google",
