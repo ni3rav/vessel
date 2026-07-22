@@ -81,3 +81,7 @@ Web and worker must share the same Service Bus connection/queue name and the sam
 `uploading` → `processing` → `ready` (or `failed`)
 
 Library selection and playback are separate: browsing the list won’t interrupt whatever is already playing until you actually start another track (Enter / double-click / next-prev in the dock).
+
+## High-level architecture diagram
+
+![Vessel Pipeline](./vessel-pipeline.png)

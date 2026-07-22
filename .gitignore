@@ -16,3 +16,4 @@ coverage
 # env files
 .env*
 !.env.example
+.vercel
