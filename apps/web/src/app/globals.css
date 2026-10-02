@@ -138,3 +138,7 @@
   --channel-solo-foreground: var(--channel-solo);
   --channel-monitor-foreground: var(--channel-monitor);
 }
+
+.dock-island[data-morphing] .dock-layer {
+  opacity: 0.4;
+}

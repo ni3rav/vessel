@@ -18,6 +18,8 @@ const SHORTCUTS = [
   { keys: "↑ / ↓", action: "Move list selection" },
   { keys: "Enter", action: "Play selected ready track" },
   { keys: "Delete", action: "Delete selected (press twice)" },
+  { keys: "\\", action: "Expand or collapse the player" },
+  { keys: "Esc", action: "Collapse the player" },
   { keys: "?", action: "Toggle shortcuts" },
 ] as const;
 

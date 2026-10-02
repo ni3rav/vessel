@@ -2,6 +2,7 @@
 
 import {
   AlertCircle,
+  ChevronDown,
   Pause,
   Play,
   Settings2,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { Ref } from "react";
+import type { Ref, RefObject } from "react";
 
 import { usePlaybackClock, usePlaybackSession } from "@/components/playback/playback-provider";
 import type { PlaybackEngine, QualityChoice } from "@/components/playback/playback-provider";
@@ -34,14 +35,75 @@ import { useWaveformData } from "@/hooks/use-waveform-data";
 import { formatTime } from "@/lib/audio/time";
 import { cn } from "@/lib/utils";
 
-/** Strong ease-out from Emil Kowalski’s animation notes. Enter/exit only. */
-const EASE_OUT = "ease-[cubic-bezier(0.23,1,0.32,1)]";
-const MORPH =
-  "origin-bottom transition-[transform,opacity] duration-200 " +
-  EASE_OUT +
-  " motion-reduce:transform-none motion-reduce:transition-opacity motion-reduce:duration-150";
-
+const EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
+const MORPH_MS = 280;
+const LAYER =
+  "dock-layer absolute inset-0 transition-opacity duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none";
 const SURFACE = "border border-border/70 bg-background/88 shadow-lg backdrop-blur-xl";
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function useIslandFlip(
+  expanded: boolean,
+  mounted: boolean,
+  refs: RefObject<Array<RefObject<HTMLElement | null>>>
+) {
+  const previous = useRef<{ expanded: boolean; rects: DOMRect[] } | null>(null);
+
+  useLayoutEffect(() => {
+    const elements = refs.current
+      .map((ref) => ref.current)
+      .filter((element): element is HTMLElement => Boolean(element));
+    const last = previous.current;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!mounted || !last || last.expanded === expanded || reduce) {
+      previous.current = {
+        expanded,
+        rects: elements.map((element) => element.getBoundingClientRect()),
+      };
+      return;
+    }
+
+    const nextRects: DOMRect[] = [];
+    elements.forEach((element, index) => {
+      const first = last.rects[index];
+      const next = element.getBoundingClientRect();
+      nextRects[index] = next;
+      if (!first) return;
+      const dx = first.left - next.left;
+      const dy = first.top - next.top;
+      const sx = first.width / Math.max(next.width, 1);
+      const sy = first.height / Math.max(next.height, 1);
+      element.getAnimations().forEach((animation) => animation.cancel());
+      element.dataset.morphing = "";
+      const animation = element.animate(
+        [
+          {
+            borderRadius: last.expanded ? "26px" : "999px",
+            transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
+            transformOrigin: "top left",
+          },
+          {
+            borderRadius: expanded ? "26px" : "999px",
+            transform: "translate(0px, 0px) scale(1, 1)",
+            transformOrigin: "top left",
+          },
+        ],
+        { duration: MORPH_MS, easing: EASING, fill: "both" }
+      );
+      const clear = () => {
+        delete element.dataset.morphing;
+      };
+      animation.finished.then(clear, clear);
+    });
+    previous.current = { expanded, rects: nextRects };
+  }, [expanded, mounted, refs]);
+}
 
 function shortQuality(label: string) {
   if (label === "Original") return "File";
@@ -79,12 +141,13 @@ export function PlaybackDock() {
   const hold = useRef({ focus: false, hover: false, menu: false, scrub: false });
   const collapseTimer = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const compactLayerRef = useRef<HTMLDivElement>(null);
-  const expandedLayerRef = useRef<HTMLDivElement>(null);
-  const compactPlayRef = useRef<HTMLButtonElement>(null);
-  const expandedPlayRef = useRef<HTMLButtonElement>(null);
-  const focusLayer = useRef<"compact" | "expanded" | null>(null);
+  const seekRef = useRef<HTMLElement>(null);
+  const transportRef = useRef<HTMLElement>(null);
+  const islandRefs = useRef([seekRef, transportRef]);
+  const suppressFocusExpand = useRef(false);
+  const keyStamp = useRef(-1);
   const seenInteraction = useRef(0);
+  useIslandFlip(expanded, session.track?.status === "ready", islandRefs);
 
   const clearCollapse = () => {
     if (collapseTimer.current === null) return;
@@ -102,9 +165,23 @@ export function PlaybackDock() {
   }, []);
 
   const expand = useCallback(() => {
+    if (suppressFocusExpand.current) return;
     setExpanded(true);
     clearCollapse();
   }, []);
+
+  const collapse = useCallback(() => {
+    suppressFocusExpand.current = true;
+    hold.current.focus = false;
+    hold.current.hover = false;
+    hold.current.menu = false;
+    setMenuOpen(false);
+    setExpanded(false);
+  }, []);
+
+  useEffect(() => {
+    if (!expanded) suppressFocusExpand.current = false;
+  }, [expanded]);
 
   useEffect(() => {
     if (session.interaction.id === 0 || session.interaction.id === seenInteraction.current) return;
@@ -113,29 +190,45 @@ export function PlaybackDock() {
     scheduleCollapse();
   }, [scheduleCollapse, session.interaction.id]);
 
-  useLayoutEffect(() => {
-    if (expanded && focusLayer.current === "compact") {
-      expandedPlayRef.current?.focus();
-      focusLayer.current = "expanded";
-    } else if (!expanded && focusLayer.current === "expanded") {
-      compactPlayRef.current?.focus();
-      focusLayer.current = "compact";
-    }
-  }, [expanded]);
-
   useEffect(() => () => clearCollapse(), []);
 
   useEffect(() => {
+    if (!expanded) return undefined;
     const onPointerDown = (event: PointerEvent) => {
-      const root = rootRef.current;
-      if (!root || !(event.target instanceof Node) || root.contains(event.target)) return;
-      hold.current.hover = false;
-      if (hold.current.menu || hold.current.scrub || hold.current.focus) return;
-      setExpanded(false);
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (rootRef.current?.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest("[role='menu'], [data-slot='dropdown-menu-content']")
+      ) {
+        return;
+      }
+      collapse();
     };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, []);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [collapse, expanded]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.timeStamp === keyStamp.current) return;
+      keyStamp.current = event.timeStamp;
+      if (isTypingTarget(event.target)) return;
+      if (event.key === "Escape") {
+        if (menuOpen || !expanded) return;
+        event.preventDefault();
+        collapse();
+        return;
+      }
+      if (event.key === "\\" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        setExpanded((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [collapse, expanded, menuOpen]);
 
   if (!session.track) return null;
 
@@ -151,86 +244,101 @@ export function PlaybackDock() {
       {ready ? (
         <div
           ref={rootRef}
-          className="pointer-events-none grid w-full max-w-3xl items-end justify-items-center"
-          onFocusCapture={() => setHold("focus", true)}
+          data-expanded={expanded ? "true" : "false"}
+          className={cn(
+            "pointer-events-auto flex w-full max-w-3xl gap-2",
+            expanded ? "flex-col sm:flex-row sm:items-stretch" : "flex-row items-end justify-center"
+          )}
+          onPointerEnter={(event) => {
+            if (event.pointerType === "touch") return;
+            setHold("hover", true);
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "touch") return;
+            setHold("hover", false);
+          }}
+          onFocusCapture={() => {
+            if (suppressFocusExpand.current) return;
+            setHold("focus", true);
+          }}
           onBlurCapture={(event) => {
             const next = event.relatedTarget;
             if (next instanceof Node && event.currentTarget.contains(next)) return;
             setHold("focus", false);
           }}
         >
-          <div
-            ref={compactLayerRef}
-            inert={expanded ? true : undefined}
+          <section
+            ref={seekRef}
+            aria-label="Seek and audio quality"
+            data-island="seek"
             className={cn(
-              "col-start-1 row-start-1 flex w-max max-w-full items-center gap-2 self-end",
-              MORPH,
+              "dock-island relative overflow-hidden",
+              SURFACE,
               expanded
-                ? "pointer-events-none scale-[0.96] opacity-0"
-                : "pointer-events-auto scale-100 opacity-100"
+                ? "h-[7.75rem] w-full rounded-[1.6rem] sm:w-auto sm:min-w-0 sm:flex-1"
+                : "h-12 w-[clamp(6.75rem,32vw,14rem)] rounded-full"
             )}
-            onPointerEnter={(event) => {
-              if (event.pointerType === "touch") return;
-              setHold("hover", true);
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType === "touch") return;
-              setHold("hover", false);
-            }}
-            onFocusCapture={() => {
-              focusLayer.current = "compact";
-            }}
           >
-            <CompactSeek
-              scrubbing={scrubbing}
-              onScrubStart={() => setHold("scrub", true)}
-              onScrubbing={setScrubbing}
-              onScrubEnd={() => {
-                setScrubbing(null);
-                setHold("scrub", false);
-              }}
-              onExpand={expand}
-            />
-            <CompactTransport playRef={compactPlayRef} />
-          </div>
-          <div
-            ref={expandedLayerRef}
-            inert={expanded ? undefined : true}
+            <div
+              className={cn(LAYER, expanded && "pointer-events-none opacity-0")}
+              inert={expanded || undefined}
+            >
+              <CompactSeek
+                scrubbing={scrubbing}
+                onScrubStart={() => setHold("scrub", true)}
+                onScrubbing={setScrubbing}
+                onScrubEnd={() => {
+                  setScrubbing(null);
+                  setHold("scrub", false);
+                }}
+                onExpand={expand}
+              />
+            </div>
+            <div
+              className={cn(LAYER, !expanded && "pointer-events-none opacity-0")}
+              inert={expanded ? undefined : true}
+            >
+              <ExpandedSeek
+                menuOpen={menuOpen}
+                scrubbing={scrubbing}
+                onScrubStart={() => setHold("scrub", true)}
+                onScrubbing={setScrubbing}
+                onScrubEnd={() => {
+                  setScrubbing(null);
+                  setHold("scrub", false);
+                }}
+                onMenuOpenChange={(open) => {
+                  setMenuOpen(open);
+                  setHold("menu", open);
+                }}
+              />
+            </div>
+          </section>
+          <section
+            ref={transportRef}
+            aria-label="Playback and volume"
+            data-island="transport"
             className={cn(
-              "col-start-1 row-start-1 flex w-full flex-col gap-2 self-end sm:flex-row sm:items-stretch",
-              MORPH,
+              "dock-island relative overflow-hidden",
+              SURFACE,
               expanded
-                ? "pointer-events-auto scale-100 opacity-100"
-                : "pointer-events-none scale-[0.97] opacity-0"
+                ? "h-[9.25rem] w-full rounded-[1.6rem] sm:w-80 sm:shrink-0"
+                : "h-12 w-[10.5rem] shrink-0 rounded-full"
             )}
-            onPointerEnter={(event) => {
-              if (event.pointerType === "touch") return;
-              setHold("hover", true);
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType === "touch") return;
-              setHold("hover", false);
-            }}
-            onFocusCapture={() => {
-              focusLayer.current = "expanded";
-            }}
           >
-            <ExpandedSeek
-              menuOpen={menuOpen}
-              scrubbing={scrubbing}
-              onScrubStart={() => setHold("scrub", true)}
-              onScrubbing={setScrubbing}
-              onScrubEnd={() => {
-                setScrubbing(null);
-                setHold("scrub", false);
-              }}
-              onMenuOpenChange={(open) => {
-                setMenuOpen(open);
-                setHold("menu", open);
-              }}
-            />
-            <ExpandedTransport playRef={expandedPlayRef} />
-          </div>
+            <div
+              className={cn(LAYER, expanded && "pointer-events-none opacity-0")}
+              inert={expanded || undefined}
+            >
+              <CompactTransport />
+            </div>
+            <div
+              className={cn(LAYER, !expanded && "pointer-events-none opacity-0")}
+              inert={expanded ? undefined : true}
+            >
+              <ExpandedTransport onCollapse={collapse} />
+            </div>
+          </section>
         </div>
       ) : (
         <div ref={rootRef} className="pointer-events-auto">
@@ -276,13 +384,7 @@ function CompactSeek({
   };
 
   return (
-    <section
-      aria-label="Seek and audio quality"
-      className={cn(
-        SURFACE,
-        "flex h-12 w-[clamp(7.75rem,34vw,14rem)] min-w-0 items-center gap-1.5 rounded-full py-1 pr-1 pl-2.5"
-      )}
-    >
+    <div className="flex h-full min-w-0 items-center gap-1.5 pr-1 pl-2.5">
       <Slider
         aria-label="Seek"
         disabled={duration <= 0}
@@ -308,7 +410,7 @@ function CompactSeek({
         <Settings2 className="size-3.5" aria-hidden />
         <span className="text-xs">{shortQuality(label)}</span>
       </Button>
-    </section>
+    </div>
   );
 }
 
@@ -337,10 +439,7 @@ function ExpandedSeek({
   };
 
   return (
-    <section
-      aria-label="Seek and audio quality"
-      className={cn(SURFACE, "min-w-0 flex-1 rounded-[1.6rem] px-3.5 py-3")}
-    >
+    <div className="flex h-full min-w-0 flex-col justify-center px-3.5 py-3">
       {session.playbackError ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground" role="alert">
           <AlertCircle className="size-3.5 shrink-0" aria-hidden />
@@ -385,7 +484,7 @@ function ExpandedSeek({
         </div>
         <QualityMenu label={label} open={menuOpen} onOpenChange={onMenuOpenChange} />
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -524,32 +623,40 @@ function MuteButton({ className }: { className?: string }) {
   );
 }
 
-function CompactTransport({ playRef }: { playRef: Ref<HTMLButtonElement> }) {
+function CompactTransport() {
   return (
-    <section
-      aria-label="Playback and volume"
-      className={cn(SURFACE, "flex h-12 shrink-0 items-center rounded-full pr-1 pl-1")}
-    >
-      <TransportButtons playRef={playRef} playClassName="size-9" />
+    <div className="flex h-full items-center pr-1 pl-1">
+      <TransportButtons playClassName="size-9" />
       <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-border" />
       <MuteButton className="size-9" />
-    </section>
+    </div>
   );
 }
 
-function ExpandedTransport({ playRef }: { playRef: Ref<HTMLButtonElement> }) {
+function ExpandedTransport({ onCollapse }: { onCollapse: () => void }) {
   const session = usePlaybackSession();
   const title = session.track?.title ?? "Nothing playing";
   const shown = session.muted ? 0 : session.volume;
 
   return (
-    <section
-      aria-label="Playback and volume"
-      className={cn(SURFACE, "w-full rounded-[1.6rem] px-4 py-3.5 sm:w-80 sm:shrink-0")}
-    >
-      <p className="truncate text-center text-sm font-medium text-foreground">{title}</p>
-      <div className="mt-2.5 flex items-center justify-center gap-3">
-        <TransportButtons playRef={playRef} playClassName="size-12" />
+    <div className="flex h-full flex-col justify-center px-4 py-3">
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-center text-sm font-medium text-foreground">
+          {title}
+        </p>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-8 shrink-0 rounded-full text-muted-foreground"
+          aria-label="Collapse player"
+          onClick={onCollapse}
+        >
+          <ChevronDown className="size-4" aria-hidden />
+        </Button>
+      </div>
+      <div className="mt-2 flex items-center justify-center gap-3">
+        <TransportButtons playClassName="size-11" />
       </div>
       <div className="mt-3 flex items-center gap-2.5 pr-1">
         <MuteButton className="size-9" />
@@ -568,7 +675,7 @@ function ExpandedTransport({ playRef }: { playRef: Ref<HTMLButtonElement> }) {
           className="min-w-0 flex-1 **:data-[slot=slider-thumb]:size-3.5 **:data-[slot=slider-track]:h-1.5"
         />
       </div>
-    </section>
+    </div>
   );
 }
 
