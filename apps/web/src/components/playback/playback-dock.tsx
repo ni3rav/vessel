@@ -13,7 +13,8 @@ import {
   VolumeX,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { Ref } from "react";
 
 import { usePlaybackClock, usePlaybackSession } from "@/components/playback/playback-provider";
 import type { PlaybackEngine, QualityChoice } from "@/components/playback/playback-provider";
@@ -28,18 +29,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
-import {
-  VolumeControl,
-  VolumeControlMute,
-  VolumeControlSlider,
-} from "@/components/ui/volume-control";
 import { Waveform, WaveformCanvas, WaveformCursor } from "@/components/ui/waveform";
 import { useWaveformData } from "@/hooks/use-waveform-data";
 import { formatTime } from "@/lib/audio/time";
 import { cn } from "@/lib/utils";
 
-const ISLAND =
-  "overflow-hidden border border-border/70 bg-background/88 shadow-lg backdrop-blur-xl transition-[width,height,flex-grow,border-radius,padding] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] focus-within:ring-2 focus-within:ring-ring/40 motion-reduce:transition-none";
+/** Strong ease-out from Emil Kowalski’s animation notes. Enter/exit only. */
+const EASE_OUT = "ease-[cubic-bezier(0.23,1,0.32,1)]";
+const MORPH =
+  "origin-bottom transition-[transform,opacity] duration-200 " +
+  EASE_OUT +
+  " motion-reduce:transform-none motion-reduce:transition-opacity motion-reduce:duration-150";
+
+const SURFACE = "border border-border/70 bg-background/88 shadow-lg backdrop-blur-xl";
 
 function shortQuality(label: string) {
   if (label === "Original") return "File";
@@ -72,12 +74,16 @@ function VolumeGlyph({ muted, volume }: { muted: boolean; volume: number }) {
 export function PlaybackDock() {
   const session = usePlaybackSession();
   const [expanded, setExpanded] = useState(false);
-  const [pulse, setPulse] = useState<"seek" | "transport" | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrubbing, setScrubbing] = useState<number | null>(null);
   const hold = useRef({ focus: false, hover: false, menu: false, scrub: false });
   const collapseTimer = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const compactLayerRef = useRef<HTMLDivElement>(null);
+  const expandedLayerRef = useRef<HTMLDivElement>(null);
+  const compactPlayRef = useRef<HTMLButtonElement>(null);
+  const expandedPlayRef = useRef<HTMLButtonElement>(null);
+  const focusLayer = useRef<"compact" | "expanded" | null>(null);
   const seenInteraction = useRef(0);
 
   const clearCollapse = () => {
@@ -104,11 +110,18 @@ export function PlaybackDock() {
     if (session.interaction.id === 0 || session.interaction.id === seenInteraction.current) return;
     seenInteraction.current = session.interaction.id;
     setExpanded(true);
-    setPulse(session.interaction.section);
-    const pulseTimer = window.setTimeout(() => setPulse(null), 700);
     scheduleCollapse();
-    return () => window.clearTimeout(pulseTimer);
-  }, [scheduleCollapse, session.interaction.id, session.interaction.section]);
+  }, [scheduleCollapse, session.interaction.id]);
+
+  useLayoutEffect(() => {
+    if (expanded && focusLayer.current === "compact") {
+      expandedPlayRef.current?.focus();
+      focusLayer.current = "expanded";
+    } else if (!expanded && focusLayer.current === "expanded") {
+      compactPlayRef.current?.focus();
+      focusLayer.current = "compact";
+    }
+  }, [expanded]);
 
   useEffect(() => () => clearCollapse(), []);
 
@@ -138,18 +151,7 @@ export function PlaybackDock() {
       {ready ? (
         <div
           ref={rootRef}
-          className={cn(
-            "pointer-events-auto flex w-full max-w-3xl items-end gap-2",
-            expanded ? "max-sm:flex-col" : "justify-center"
-          )}
-          onPointerEnter={(event) => {
-            if (event.pointerType === "touch") return;
-            setHold("hover", true);
-          }}
-          onPointerLeave={(event) => {
-            if (event.pointerType === "touch") return;
-            setHold("hover", false);
-          }}
+          className="pointer-events-none grid w-full max-w-3xl items-end justify-items-center"
           onFocusCapture={() => setHold("focus", true)}
           onBlurCapture={(event) => {
             const next = event.relatedTarget;
@@ -157,24 +159,78 @@ export function PlaybackDock() {
             setHold("focus", false);
           }}
         >
-          <SeekIsland
-            expanded={expanded}
-            pulse={pulse === "seek"}
-            menuOpen={menuOpen}
-            scrubbing={scrubbing}
-            onScrubStart={() => setHold("scrub", true)}
-            onScrubbing={setScrubbing}
-            onScrubEnd={() => {
-              setScrubbing(null);
-              setHold("scrub", false);
+          <div
+            ref={compactLayerRef}
+            inert={expanded ? true : undefined}
+            className={cn(
+              "col-start-1 row-start-1 flex w-max max-w-full items-center gap-2 self-end",
+              MORPH,
+              expanded
+                ? "pointer-events-none scale-[0.96] opacity-0"
+                : "pointer-events-auto scale-100 opacity-100"
+            )}
+            onPointerEnter={(event) => {
+              if (event.pointerType === "touch") return;
+              setHold("hover", true);
             }}
-            onMenuOpenChange={(open) => {
-              setMenuOpen(open);
-              setHold("menu", open);
+            onPointerLeave={(event) => {
+              if (event.pointerType === "touch") return;
+              setHold("hover", false);
             }}
-            onExpand={expand}
-          />
-          <TransportIsland expanded={expanded} pulse={pulse === "transport"} onExpand={expand} />
+            onFocusCapture={() => {
+              focusLayer.current = "compact";
+            }}
+          >
+            <CompactSeek
+              scrubbing={scrubbing}
+              onScrubStart={() => setHold("scrub", true)}
+              onScrubbing={setScrubbing}
+              onScrubEnd={() => {
+                setScrubbing(null);
+                setHold("scrub", false);
+              }}
+              onExpand={expand}
+            />
+            <CompactTransport playRef={compactPlayRef} />
+          </div>
+          <div
+            ref={expandedLayerRef}
+            inert={expanded ? undefined : true}
+            className={cn(
+              "col-start-1 row-start-1 flex w-full flex-col gap-2 self-end sm:flex-row sm:items-stretch",
+              MORPH,
+              expanded
+                ? "pointer-events-auto scale-100 opacity-100"
+                : "pointer-events-none scale-[0.97] opacity-0"
+            )}
+            onPointerEnter={(event) => {
+              if (event.pointerType === "touch") return;
+              setHold("hover", true);
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType === "touch") return;
+              setHold("hover", false);
+            }}
+            onFocusCapture={() => {
+              focusLayer.current = "expanded";
+            }}
+          >
+            <ExpandedSeek
+              menuOpen={menuOpen}
+              scrubbing={scrubbing}
+              onScrubStart={() => setHold("scrub", true)}
+              onScrubbing={setScrubbing}
+              onScrubEnd={() => {
+                setScrubbing(null);
+                setHold("scrub", false);
+              }}
+              onMenuOpenChange={(open) => {
+                setMenuOpen(open);
+                setHold("menu", open);
+              }}
+            />
+            <ExpandedTransport playRef={expandedPlayRef} />
+          </div>
         </div>
       ) : (
         <div ref={rootRef} className="pointer-events-auto">
@@ -185,40 +241,34 @@ export function PlaybackDock() {
   );
 }
 
-function SeekIsland({
-  expanded,
-  pulse,
-  menuOpen,
-  scrubbing,
-  onScrubStart,
-  onScrubbing,
-  onScrubEnd,
-  onMenuOpenChange,
-  onExpand,
-}: {
-  expanded: boolean;
-  pulse: boolean;
-  menuOpen: boolean;
-  scrubbing: number | null;
-  onScrubStart: () => void;
-  onScrubbing: (time: number | null) => void;
-  onScrubEnd: () => void;
-  onMenuOpenChange: (open: boolean) => void;
-  onExpand: () => void;
-}) {
+function useSeekModel(scrubbing: number | null) {
   const session = usePlaybackSession();
   const clock = usePlaybackClock();
-  const waveform = useWaveformData(session.track?.fallbackUrl || null, { samples: 220 });
   const elapsed = scrubbing ?? clock.currentTime;
-  const duration = clock.duration > 0 ? clock.duration : waveform.duration;
-  const remaining = Math.max(0, (clock.duration || waveform.duration) - elapsed);
+  const duration = clock.duration > 0 ? clock.duration : 0;
   const label = qualityText(
     session.engine,
     session.qualityChoice,
     session.activeBitrate,
     session.levels
   );
+  return { duration, elapsed, label, session };
+}
 
+function CompactSeek({
+  scrubbing,
+  onScrubStart,
+  onScrubbing,
+  onScrubEnd,
+  onExpand,
+}: {
+  scrubbing: number | null;
+  onScrubStart: () => void;
+  onScrubbing: (time: number | null) => void;
+  onScrubEnd: () => void;
+  onExpand: () => void;
+}) {
+  const { duration, elapsed, label, session } = useSeekModel(scrubbing);
   const commit = (time: number) => {
     onScrubbing(null);
     onScrubEnd();
@@ -228,107 +278,122 @@ function SeekIsland({
   return (
     <section
       aria-label="Seek and audio quality"
-      data-pulse={pulse ? "on" : undefined}
       className={cn(
-        ISLAND,
-        "pointer-events-auto",
-        expanded
-          ? "h-[5.6rem] w-full rounded-[1.7rem] px-3 py-2.5 sm:min-w-0 sm:flex-1"
-          : "h-11 w-[calc(50%-0.25rem)] max-w-[15rem] shrink-0 rounded-full px-2",
-        pulse && "animate-[island-pulse_700ms_ease-out] motion-reduce:animate-none"
+        SURFACE,
+        "flex h-12 w-[clamp(7.75rem,34vw,14rem)] min-w-0 items-center gap-1.5 rounded-full py-1 pr-1 pl-2.5"
       )}
-      onClick={onExpand}
     >
-      <div className="flex h-full min-w-0 items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <div className={cn("min-w-0", expanded ? "h-8" : "h-4")}>
-            <div className={cn(expanded ? "block" : "hidden")}>
-              {session.playbackError ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground" role="alert">
-                  <AlertCircle className="size-3.5 shrink-0" aria-hidden />
-                  <span className="truncate">{session.playbackError}</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 rounded-full px-2 text-xs"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      session.playOriginal();
-                    }}
-                  >
-                    Original
-                  </Button>
-                </div>
-              ) : (
-                <Waveform
-                  aria-label="Seek"
-                  barGap={1}
-                  barRadius={1}
-                  barWidth={2}
-                  className="h-8"
-                  currentTime={duration > 0 ? Math.min(Math.max(0, elapsed), duration) : 0}
-                  disabled={duration <= 0}
-                  duration={duration > 0 ? duration : 0}
-                  loading={false}
-                  onSeek={(time) => {
-                    onScrubStart();
-                    onScrubbing(time);
-                  }}
-                  onSeekCommitted={commit}
-                  peaks={waveform.status === "ready" ? waveform.peaks : null}
-                  variant="bars"
-                >
-                  <WaveformCanvas />
-                  <WaveformCursor />
-                </Waveform>
-              )}
-            </div>
-            <div className={cn("flex h-full items-center", expanded && "hidden")}>
-              <Slider
-                aria-label="Seek"
-                disabled={duration <= 0}
-                max={duration > 0 ? duration : 1}
-                min={0}
-                step={0.25}
-                value={[duration > 0 ? Math.min(Math.max(0, elapsed), duration) : 0]}
-                onValueChange={(value) => {
-                  onScrubStart();
-                  onScrubbing(value[0] ?? 0);
-                }}
-                onValueCommit={(value) => commit(value[0] ?? 0)}
-                className="w-full **:data-[slot=slider-range]:bg-primary **:data-[slot=slider-thumb]:size-3 **:data-[slot=slider-track]:h-1"
-              />
-            </div>
-          </div>
-          <div
-            className={cn(
-              "mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground tabular-nums",
-              !expanded && "sr-only"
-            )}
+      <Slider
+        aria-label="Seek"
+        disabled={duration <= 0}
+        max={duration > 0 ? duration : 1}
+        min={0}
+        step={0.25}
+        value={[duration > 0 ? Math.min(Math.max(0, elapsed), duration) : 0]}
+        onValueChange={(value) => {
+          onScrubStart();
+          onScrubbing(value[0] ?? 0);
+        }}
+        onValueCommit={(value) => commit(value[0] ?? 0)}
+        className="min-w-0 flex-1 **:data-[slot=slider-thumb]:size-3.5 **:data-[slot=slider-track]:h-1"
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-9 shrink-0 rounded-full px-2.5 text-muted-foreground hover:text-foreground"
+        aria-label={`Stream quality: ${label}. Expand player`}
+        onClick={onExpand}
+      >
+        <Settings2 className="size-3.5" aria-hidden />
+        <span className="text-xs">{shortQuality(label)}</span>
+      </Button>
+    </section>
+  );
+}
+
+function ExpandedSeek({
+  menuOpen,
+  scrubbing,
+  onScrubStart,
+  onScrubbing,
+  onScrubEnd,
+  onMenuOpenChange,
+}: {
+  menuOpen: boolean;
+  scrubbing: number | null;
+  onScrubStart: () => void;
+  onScrubbing: (time: number | null) => void;
+  onScrubEnd: () => void;
+  onMenuOpenChange: (open: boolean) => void;
+}) {
+  const { duration, elapsed, label, session } = useSeekModel(scrubbing);
+  const waveform = useWaveformData(session.track?.fallbackUrl || null, { samples: 220 });
+  const waveDuration = duration > 0 ? duration : waveform.duration;
+  const commit = (time: number) => {
+    onScrubbing(null);
+    onScrubEnd();
+    session.seekTo(time, { animate: true });
+  };
+
+  return (
+    <section
+      aria-label="Seek and audio quality"
+      className={cn(SURFACE, "min-w-0 flex-1 rounded-[1.6rem] px-3.5 py-3")}
+    >
+      {session.playbackError ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground" role="alert">
+          <AlertCircle className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">{session.playbackError}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 shrink-0 rounded-full px-2 text-xs"
+            onClick={session.playOriginal}
           >
-            <span>{formatTime(elapsed)}</span>
-            <span>{formatTime(remaining, { remaining: true })}</span>
-          </div>
+            Original
+          </Button>
         </div>
-        <QualityMenu
-          compact={!expanded}
-          label={label}
-          open={menuOpen}
-          onOpenChange={onMenuOpenChange}
-        />
+      ) : (
+        <Waveform
+          aria-label="Seek"
+          barGap={1}
+          barRadius={1}
+          barWidth={2}
+          className="h-10"
+          currentTime={waveDuration > 0 ? Math.min(Math.max(0, elapsed), waveDuration) : 0}
+          disabled={waveDuration <= 0}
+          duration={waveDuration > 0 ? waveDuration : 0}
+          loading={false}
+          onSeek={(time) => {
+            onScrubStart();
+            onScrubbing(time);
+          }}
+          onSeekCommitted={commit}
+          peaks={waveform.status === "ready" ? waveform.peaks : null}
+          variant="bars"
+        >
+          <WaveformCanvas />
+          <WaveformCursor />
+        </Waveform>
+      )}
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 justify-between text-[11px] text-muted-foreground tabular-nums">
+          <span>{formatTime(elapsed)}</span>
+          <span>{formatTime(Math.max(0, waveDuration - elapsed), { remaining: true })}</span>
+        </div>
+        <QualityMenu label={label} open={menuOpen} onOpenChange={onMenuOpenChange} />
       </div>
     </section>
   );
 }
 
 function QualityMenu({
-  compact,
   label,
   open,
   onOpenChange,
 }: {
-  compact: boolean;
   label: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -345,13 +410,12 @@ function QualityMenu({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-8 max-w-28 shrink-0 rounded-full px-2 text-muted-foreground hover:text-foreground"
+          className="h-8 max-w-40 shrink-0 rounded-full px-2.5 text-muted-foreground hover:text-foreground"
           aria-label={`Stream quality: ${label}`}
           title={`Quality · ${label}`}
-          onClick={(event) => event.stopPropagation()}
         >
           <Settings2 className="size-3.5" aria-hidden />
-          <span className="truncate text-[11px]">{compact ? shortQuality(label) : label}</span>
+          <span className="truncate text-xs">{label}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52 rounded-xl p-1.5" id={menuId}>
@@ -387,110 +451,122 @@ function QualityMenu({
   );
 }
 
-function TransportIsland({
-  expanded,
-  pulse,
-  onExpand,
+function TransportButtons({
+  playRef,
+  playClassName,
 }: {
-  expanded: boolean;
-  pulse: boolean;
-  onExpand: () => void;
+  playRef?: Ref<HTMLButtonElement>;
+  playClassName: string;
 }) {
   const session = usePlaybackSession();
   const clock = usePlaybackClock();
   const title = session.track?.title ?? "Nothing playing";
 
   return (
+    <>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="size-9 shrink-0 rounded-full sm:size-10"
+        aria-label="Previous track"
+        disabled={!session.canPrevious}
+        onClick={session.previous}
+      >
+        <SkipBack className="size-4 fill-current" aria-hidden />
+      </Button>
+      <Button
+        ref={playRef}
+        type="button"
+        size="icon"
+        className={cn("shrink-0 rounded-full", playClassName)}
+        aria-label={clock.playing ? `Pause ${title}` : `Play ${title}`}
+        onClick={session.toggle}
+      >
+        {clock.playing ? (
+          <Pause className="fill-current" aria-hidden />
+        ) : (
+          <Play className="fill-current pl-0.5" aria-hidden />
+        )}
+      </Button>
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="size-9 shrink-0 rounded-full sm:size-10"
+        aria-label="Next track"
+        disabled={!session.canNext}
+        onClick={session.next}
+      >
+        <SkipForward className="size-4 fill-current" aria-hidden />
+      </Button>
+    </>
+  );
+}
+
+function MuteButton({ className }: { className?: string }) {
+  const session = usePlaybackSession();
+  return (
+    <Button
+      type="button"
+      size="icon"
+      variant="ghost"
+      className={cn("shrink-0 rounded-full text-muted-foreground hover:text-foreground", className)}
+      aria-label={session.muted ? "Unmute" : "Mute"}
+      aria-pressed={session.muted}
+      onClick={() => {
+        if (session.muted && session.volume === 0) session.setVolume(1);
+        session.setMuted(!session.muted);
+      }}
+    >
+      <VolumeGlyph muted={session.muted} volume={session.volume} />
+    </Button>
+  );
+}
+
+function CompactTransport({ playRef }: { playRef: Ref<HTMLButtonElement> }) {
+  return (
     <section
       aria-label="Playback and volume"
-      data-pulse={pulse ? "on" : undefined}
-      className={cn(
-        ISLAND,
-        "pointer-events-auto",
-        expanded
-          ? "h-[5.6rem] w-full rounded-[1.7rem] px-3 py-2.5 sm:w-[17.5rem] sm:shrink-0"
-          : "h-11 w-[calc(50%-0.25rem)] max-w-[13.5rem] shrink-0 rounded-full px-1",
-        pulse && "animate-[island-pulse_700ms_ease-out] motion-reduce:animate-none"
-      )}
-      onClick={onExpand}
+      className={cn(SURFACE, "flex h-12 shrink-0 items-center rounded-full pr-1 pl-1")}
     >
-      <div className="flex h-full min-w-0 flex-col justify-center gap-1.5">
-        <p
-          className={cn(
-            "truncate px-1 text-sm font-medium text-foreground",
-            expanded ? "block" : "sr-only"
-          )}
-        >
-          {title}
-        </p>
-        <div className="flex min-w-0 items-center gap-0.5 sm:gap-1">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-8 shrink-0 rounded-full"
-            aria-label="Previous track"
-            disabled={!session.canPrevious}
-            onClick={(event) => {
-              event.stopPropagation();
-              session.previous();
-            }}
-          >
-            <SkipBack className="size-4 fill-current" aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            className="size-9 shrink-0 rounded-full"
-            aria-label={clock.playing ? `Pause ${title}` : `Play ${title}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              session.toggle();
-            }}
-          >
-            {clock.playing ? (
-              <Pause className="fill-current" aria-hidden />
-            ) : (
-              <Play className="fill-current pl-0.5" aria-hidden />
-            )}
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-8 shrink-0 rounded-full"
-            aria-label="Next track"
-            disabled={!session.canNext}
-            onClick={(event) => {
-              event.stopPropagation();
-              session.next();
-            }}
-          >
-            <SkipForward className="size-4 fill-current" aria-hidden />
-          </Button>
-          <VolumeControl
-            className="min-w-0 shrink gap-1"
-            muted={session.muted}
-            onMutedChange={session.setMuted}
-            onValueChange={session.setVolume}
-            size="sm"
-            value={session.volume}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <VolumeControlMute
-              className="size-8 rounded-full"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <VolumeGlyph muted={session.muted} volume={session.volume} />
-            </VolumeControlMute>
-            <VolumeControlSlider
-              className={cn(
-                "min-w-0 transition-[width,opacity] duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
-                expanded ? "w-16 opacity-100 sm:w-20" : "w-0 overflow-hidden opacity-0"
-              )}
-            />
-          </VolumeControl>
-        </div>
+      <TransportButtons playRef={playRef} playClassName="size-9" />
+      <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+      <MuteButton className="size-9" />
+    </section>
+  );
+}
+
+function ExpandedTransport({ playRef }: { playRef: Ref<HTMLButtonElement> }) {
+  const session = usePlaybackSession();
+  const title = session.track?.title ?? "Nothing playing";
+  const shown = session.muted ? 0 : session.volume;
+
+  return (
+    <section
+      aria-label="Playback and volume"
+      className={cn(SURFACE, "w-full rounded-[1.6rem] px-4 py-3.5 sm:w-80 sm:shrink-0")}
+    >
+      <p className="truncate text-center text-sm font-medium text-foreground">{title}</p>
+      <div className="mt-2.5 flex items-center justify-center gap-3">
+        <TransportButtons playRef={playRef} playClassName="size-12" />
+      </div>
+      <div className="mt-3 flex items-center gap-2.5 pr-1">
+        <MuteButton className="size-9" />
+        <Slider
+          aria-label="Volume"
+          max={1}
+          min={0}
+          step={0.01}
+          value={[shown]}
+          onValueChange={(value) => {
+            const next = value[0] ?? 0;
+            session.setVolume(next);
+            if (session.muted && next > 0) session.setMuted(false);
+            if (!session.muted && next === 0) session.setMuted(true);
+          }}
+          className="min-w-0 flex-1 **:data-[slot=slider-thumb]:size-3.5 **:data-[slot=slider-track]:h-1.5"
+        />
       </div>
     </section>
   );
@@ -506,8 +582,8 @@ function StatusIsland() {
     <section
       aria-label="Track status"
       className={cn(
-        ISLAND,
-        "pointer-events-auto flex h-11 max-w-md items-center gap-2 rounded-full px-3"
+        SURFACE,
+        "pointer-events-auto flex h-12 max-w-md items-center gap-2 rounded-full px-3"
       )}
     >
       {failed ? (
