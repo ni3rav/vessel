@@ -139,6 +139,8 @@
   --channel-monitor-foreground: var(--channel-monitor);
 }
 
-.dock-island[data-morphing] .dock-layer {
-  opacity: 0.4;
+.dock-control {
+  translate: none !important;
+  transition-property: color, background-color, border-color, opacity !important;
+  transition-duration: 150ms !important;
 }
