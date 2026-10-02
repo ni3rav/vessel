@@ -26,7 +26,6 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { BarVisualizer } from "@/components/ui/bar-visualizer";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -44,10 +43,7 @@ import {
   VolumeControlSlider,
 } from "@/components/ui/volume-control";
 import { Waveform, WaveformCanvas, WaveformCursor, WaveformHover } from "@/components/ui/waveform";
-import { useAudioAnalyser } from "@/hooks/use-audio-analyser";
-import { useAudioContext } from "@/hooks/use-audio-context";
 import { useWaveformData } from "@/hooks/use-waveform-data";
-import type { FrameSource, VisualFrame } from "@/lib/audio/types";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -133,17 +129,13 @@ function VolumeGlyph({ muted, volume }: { muted: boolean; volume: number }) {
   return <Volume2 className={className} aria-hidden />;
 }
 
-function PlayerMeters({
-  visual,
-  playing,
+function PlayerVolume({
   volume,
   muted,
   disabled,
   onVolume,
   onMuted,
 }: {
-  visual: FrameSource<VisualFrame>;
-  playing: boolean;
   volume: number;
   muted: boolean;
   disabled: boolean;
@@ -151,28 +143,20 @@ function PlayerMeters({
   onMuted: (muted: boolean) => void;
 }) {
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
-      <BarVisualizer
-        aria-label="Playback level"
-        barCount={12}
-        className="h-8 w-12 text-primary sm:w-16"
-        idle={playing ? "pulse" : "static"}
-        source={visual}
-      />
-      <VolumeControl
-        disabled={disabled}
-        muted={muted}
-        onMutedChange={onMuted}
-        onValueChange={onVolume}
-        size="sm"
-        value={volume}
-      >
-        <VolumeControlMute>
-          <VolumeGlyph muted={muted} volume={volume} />
-        </VolumeControlMute>
-        <VolumeControlSlider className="hidden w-16 min-w-0 sm:flex" />
-      </VolumeControl>
-    </div>
+    <VolumeControl
+      className="shrink-0 gap-1.5"
+      disabled={disabled}
+      muted={muted}
+      onMutedChange={onMuted}
+      onValueChange={onVolume}
+      size="sm"
+      value={volume}
+    >
+      <VolumeControlMute className="size-8 rounded-full">
+        <VolumeGlyph muted={muted} volume={volume} />
+      </VolumeControlMute>
+      <VolumeControlSlider className="hidden w-16 min-w-0 md:flex" />
+    </VolumeControl>
   );
 }
 
@@ -244,7 +228,7 @@ function PlayerSeekBar({
         barGap={1}
         barRadius={1}
         barWidth={compact ? 2 : 3}
-        className={compact ? "h-10" : "h-16"}
+        className={compact ? "h-8" : "h-16"}
         currentTime={duration > 0 ? Math.min(Math.max(0, currentTime), duration) : 0}
         disabled={disabled || duration <= 0}
         duration={duration > 0 ? duration : 0}
@@ -256,7 +240,7 @@ function PlayerSeekBar({
       >
         <WaveformCanvas />
         <WaveformCursor />
-        <WaveformHover />
+        {compact ? null : <WaveformHover />}
       </Waveform>
       <div
         aria-hidden
@@ -289,16 +273,9 @@ export function HlsAudioPlayer({
   const showSkip = Boolean(onPrevious || onNext);
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [audioNode, setAudioNode] = useState<HTMLAudioElement | null>(null);
-  const setAudioElement = useCallback((node: HTMLAudioElement | null) => {
-    audioRef.current = node;
-    setAudioNode(node);
-  }, []);
   const hlsRef = useRef<Hls | null>(null);
   const caps = useAudioPlaybackCaps();
-  const { resume } = useAudioContext();
-  const waveform = useWaveformData(fallbackUrl || null, { samples: 240 });
-  const analyser = useAudioAnalyser(audioNode, { bands: 24 });
+  const waveform = useWaveformData(fallbackUrl || null, { samples: isDock ? 180 : 320 });
 
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [preferOriginalFile, setPreferOriginalFile] = useState(false);
@@ -407,7 +384,6 @@ export function HlsAudioPlayer({
       audio.removeEventListener("progress", onProgress);
     };
 
-    audio.crossOrigin = "anonymous";
     applyVolume();
 
     if (caps.nativeHls) {
@@ -500,7 +476,6 @@ export function HlsAudioPlayer({
     setPlaybackError(null);
     setMseLevels([]);
     setQualityChoice("auto");
-    audio.crossOrigin = "anonymous";
     audio.volume = volume;
     audio.muted = muted;
     audio.src = fallbackUrl;
@@ -512,19 +487,14 @@ export function HlsAudioPlayer({
     if (!audio) return;
     audio.volume = volume;
     audio.muted = muted;
-  }, [audioNode, muted, volume]);
+  }, [muted, volume]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) {
-      void resume().finally(() => {
-        void audio.play();
-      });
-    } else {
-      audio.pause();
-    }
-  }, [resume]);
+    if (audio.paused) void audio.play();
+    else audio.pause();
+  }, []);
 
   const seekBy = useCallback((deltaSeconds: number) => {
     const audio = audioRef.current;
@@ -686,13 +656,7 @@ export function HlsAudioPlayer({
   if (isDock) {
     return (
       <div className="flex w-full flex-col gap-1.5">
-        <audio
-          ref={setAudioElement}
-          preload="metadata"
-          aria-label={label}
-          className="sr-only"
-          crossOrigin="anonymous"
-        />
+        <audio ref={audioRef} preload="metadata" aria-label={label} className="sr-only" />
 
         {playbackError ? (
           <div className="flex items-center justify-between gap-3 px-1 py-1" role="alert">
@@ -718,7 +682,7 @@ export function HlsAudioPlayer({
             tabIndex={0}
             onKeyDown={onKeyDown}
             className={cn(
-              "outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              "flex flex-col gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               caps === null && "pointer-events-none opacity-50"
             )}
           >
@@ -727,7 +691,7 @@ export function HlsAudioPlayer({
               focused.
             </span>
 
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1 sm:gap-2">
               {showSkip ? (
                 <Button
                   type="button"
@@ -771,40 +735,35 @@ export function HlsAudioPlayer({
                 </Button>
               ) : null}
 
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium leading-tight text-foreground">
-                  {displayTitle}
-                </p>
-                <div className="mt-1.5">
-                  <PlayerSeekBar
-                    bufferedEndRatio={bufferedEndRatio}
-                    compact
-                    currentTime={elapsed}
-                    disabled={caps === null}
-                    duration={waveDuration}
-                    failed={waveform.status !== "ready"}
-                    loading={false}
-                    onSeek={onWaveSeek}
-                    onSeekCommitted={onWaveSeekCommit}
-                    peaks={waveform.peaks}
-                  />
-                  <div className="mt-1 flex justify-between gap-3 tabular-nums text-[11px] text-muted-foreground">
-                    <span>{formatWallClock(elapsed)}</span>
-                    <span>−{formatWallClock(remaining)}</span>
-                  </div>
-                </div>
-              </div>
+              <p className="min-w-0 flex-1 truncate text-sm font-medium leading-tight text-foreground">
+                {displayTitle}
+              </p>
 
-              <PlayerMeters
+              <PlayerVolume
                 disabled={caps === null}
                 muted={muted}
                 onMuted={setMuted}
                 onVolume={setVolume}
-                playing={playing}
-                visual={analyser.visual}
                 volume={volume}
               />
               <div className="shrink-0">{qualityMenu}</div>
+            </div>
+
+            <PlayerSeekBar
+              bufferedEndRatio={bufferedEndRatio}
+              compact
+              currentTime={elapsed}
+              disabled={caps === null}
+              duration={waveDuration}
+              failed={waveform.status !== "ready"}
+              loading={false}
+              onSeek={onWaveSeek}
+              onSeekCommitted={onWaveSeekCommit}
+              peaks={waveform.peaks}
+            />
+            <div className="flex justify-between gap-3 tabular-nums text-[11px] text-muted-foreground">
+              <span>{formatWallClock(elapsed)}</span>
+              <span>−{formatWallClock(remaining)}</span>
             </div>
           </div>
         )}
@@ -814,13 +773,7 @@ export function HlsAudioPlayer({
 
   return (
     <div className="flex w-full flex-col gap-3">
-      <audio
-        ref={setAudioElement}
-        preload="metadata"
-        aria-label={label}
-        className="sr-only"
-        crossOrigin="anonymous"
-      />
+      <audio ref={audioRef} preload="metadata" aria-label={label} className="sr-only" />
 
       {!playbackError ? (
         <div
@@ -864,13 +817,11 @@ export function HlsAudioPlayer({
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2 pt-px">
-                <PlayerMeters
+                <PlayerVolume
                   disabled={caps === null}
                   muted={muted}
                   onMuted={setMuted}
                   onVolume={setVolume}
-                  playing={playing}
-                  visual={analyser.visual}
                   volume={volume}
                 />
                 {qualityMenu}
