@@ -11,6 +11,15 @@ import { HlsAudioPlayer, type HlsPlayerControls } from "@/components/hls-audio-p
 import { KeyboardShortcutsHint } from "@/components/keyboard-shortcuts-hint";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  TrackList,
+  TrackListItem,
+  TrackListItemActions,
+  TrackListItemContent,
+  TrackListItemDescription,
+  TrackListItemIndex,
+  TrackListItemTitle,
+} from "@/components/ui/track-list";
 import { tryCatch } from "@/lib/try-catch";
 import { deriveHlsMasterKeyFromUploadKey, joinPublicObjectUrl } from "@/lib/upload-hls";
 import { cn } from "@/lib/utils";
@@ -66,7 +75,7 @@ function StatusChip({ status }: { status: LibraryUploadRow["status"] }) {
         "inline-flex h-6 w-[6.75rem] shrink-0 items-center justify-center gap-1 rounded-full px-2 text-[11px] font-medium tracking-wide",
         status === "ready" && "bg-muted text-muted-foreground",
         status === "failed" && "bg-destructive/10 text-destructive",
-        (status === "processing" || status === "uploading") && "bg-primary/10 text-primary",
+        (status === "processing" || status === "uploading") && "bg-primary/10 text-primary"
       )}
     >
       {(status === "processing" || status === "uploading") && (
@@ -140,20 +149,20 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
 
   const pending = useMemo(
     () => uploads.filter((u) => u.status === "uploading" || u.status === "processing"),
-    [uploads],
+    [uploads]
   );
 
   const sorted = useMemo(
     () =>
       [...uploads].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ),
-    [uploads],
+    [uploads]
   );
 
   const filtered = useMemo(
     () => sorted.filter((u) => fuzzyMatch(query, u.filename)),
-    [query, sorted],
+    [query, sorted]
   );
 
   const selected = selectedId ? (uploads.find((u) => u.id === selectedId) ?? null) : null;
@@ -162,7 +171,10 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
   const playingIndex = playing ? sorted.findIndex((u) => u.id === playing.id) : -1;
   const previousReady =
     playingIndex > 0
-      ? sorted.slice(0, playingIndex).reverse().find((u) => u.status === "ready")
+      ? sorted
+          .slice(0, playingIndex)
+          .reverse()
+          .find((u) => u.status === "ready")
       : undefined;
   const nextReady =
     playingIndex >= 0
@@ -206,7 +218,7 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
       const qs = next.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
-    [pathname, router, searchParams],
+    [pathname, router, searchParams]
   );
 
   const handleSelect = useCallback(
@@ -216,7 +228,7 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
       syncSelectedQuery(id);
       rowRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
     },
-    [syncSelectedQuery],
+    [syncSelectedQuery]
   );
 
   const playTrack = useCallback(
@@ -231,7 +243,7 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
       setSelectedId(id);
       syncSelectedQuery(id);
     },
-    [playingId, syncSelectedQuery, uploads],
+    [playingId, syncSelectedQuery, uploads]
   );
 
   const goPrevious = useCallback(() => {
@@ -263,13 +275,13 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
       const next = filtered[nextIndex];
       if (next) handleSelect(next.id);
     },
-    [filtered, handleSelect, selectedId],
+    [filtered, handleSelect, selectedId]
   );
 
   const handleDelete = useCallback(
     async (upload: LibraryUploadRow) => {
       const { data: res, error } = await tryCatch(
-        fetch(`/api/upload/${encodeURIComponent(upload.id)}`, { method: "DELETE" }),
+        fetch(`/api/upload/${encodeURIComponent(upload.id)}`, { method: "DELETE" })
       );
       if (error || !res) {
         toast.error("Could not delete track.");
@@ -292,7 +304,7 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
       }
       router.refresh();
     },
-    [playingId, router, selectedId, syncSelectedQuery],
+    [playingId, router, selectedId, syncSelectedQuery]
   );
 
   useEffect(() => {
@@ -318,6 +330,20 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
         goNext();
         return;
       }
+      const inTrackList =
+        event.target instanceof HTMLElement &&
+        Boolean(event.target.closest("[data-slot='track-list']"));
+      if (inTrackList && (key === "ArrowUp" || key === "ArrowDown")) {
+        return;
+      }
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest("button") &&
+        (key === "Enter" || key === " ")
+      ) {
+        return;
+      }
+
       if (key === "ArrowUp") {
         event.preventDefault();
         moveListSelection(-1);
@@ -395,10 +421,10 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
   const hlsUrl =
     playing && masterKey !== null
       ? joinPublicObjectUrl(r2PublicBaseUrl, masterKey)
-      : playing?.publicUrl ?? "";
+      : (playing?.publicUrl ?? "");
 
   return (
-    <div className="flex w-full flex-col pb-28">
+    <div className="flex w-full flex-col pb-40">
       <header className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
@@ -449,66 +475,57 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
             No tracks match “{query.trim()}”
           </p>
         ) : (
-          <ul className="flex flex-col gap-0.5 p-2" aria-label="Tracks">
-            {filtered.map((upload) => {
+          <TrackList aria-label="Tracks" className="p-2">
+            {filtered.map((upload, index) => {
               const isSelected = selected?.id === upload.id;
               const isPlaying = playing?.id === upload.id;
               const deleteDisabled =
                 upload.status === "processing" || upload.status === "uploading";
               return (
-                <li
+                <TrackListItem
                   key={upload.id}
+                  active={isSelected}
+                  playing={isPlaying && upload.status === "ready"}
+                  className={cn(
+                    isSelected &&
+                      "before:absolute before:top-1/2 before:left-0 before:h-8 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary"
+                  )}
                   ref={(node) => {
                     if (node) rowRefs.current.set(upload.id, node);
                     else rowRefs.current.delete(upload.id);
                   }}
+                  onSelect={() => handleSelect(upload.id)}
+                  onFocus={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    handleSelect(upload.id);
+                  }}
+                  onDoubleClick={(event) => {
+                    const target = event.target;
+                    if (target instanceof HTMLElement && target.closest("button")) return;
+                    playTrack(upload.id);
+                  }}
                 >
-                  <div
-                    className={cn(
-                      "relative grid w-full grid-cols-[minmax(0,1fr)_6.75rem_2rem] items-center gap-2 rounded-lg py-2 pr-2 pl-4 transition-colors duration-150",
-                      isSelected
-                        ? "bg-muted/50 text-foreground before:absolute before:top-1/2 before:left-0 before:h-8 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-primary"
-                        : "text-foreground/88 hover:bg-muted/30 hover:text-foreground",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleSelect(upload.id)}
-                      onDoubleClick={() => playTrack(upload.id)}
-                      className="min-w-0 touch-manipulation py-1 text-left"
-                    >
-                      <span
-                        className={cn(
-                          "block truncate font-medium leading-snug",
-                          isSelected ? "text-foreground" : "text-foreground/90",
-                        )}
-                      >
-                        {upload.filename}
-                        {isPlaying ? (
-                          <span className="ml-2 text-xs font-normal text-primary">Playing</span>
-                        ) : null}
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs leading-tight text-muted-foreground">
-                        {formatCreatedAt(upload.createdAt)}
-                      </span>
-                    </button>
-                    <div className="flex justify-end">
-                      <StatusChip status={upload.status} />
-                    </div>
-                    <div className="flex justify-end">
-                      <ConfirmDeleteButton
-                        disabled={deleteDisabled}
-                        armed={deleteArmedId === upload.id}
-                        onArm={() => setDeleteArmedId(upload.id)}
-                        onDisarm={clearDeleteArmed}
-                        onConfirm={() => handleDelete(upload)}
-                      />
-                    </div>
-                  </div>
-                </li>
+                  <TrackListItemIndex>{index + 1}</TrackListItemIndex>
+                  <TrackListItemContent>
+                    <TrackListItemTitle>{upload.filename}</TrackListItemTitle>
+                    <TrackListItemDescription>
+                      {formatCreatedAt(upload.createdAt)}
+                    </TrackListItemDescription>
+                  </TrackListItemContent>
+                  <TrackListItemActions>
+                    <StatusChip status={upload.status} />
+                    <ConfirmDeleteButton
+                      disabled={deleteDisabled}
+                      armed={deleteArmedId === upload.id}
+                      onArm={() => setDeleteArmedId(upload.id)}
+                      onDisarm={clearDeleteArmed}
+                      onConfirm={() => handleDelete(upload)}
+                    />
+                  </TrackListItemActions>
+                </TrackListItem>
               );
             })}
-          </ul>
+          </TrackList>
         )}
       </ScrollArea>
 
