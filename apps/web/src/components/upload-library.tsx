@@ -1,14 +1,15 @@
 "use client";
 
-import { CircleAlert, Loader2, Search, SkipBack, SkipForward, X } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
-import { HlsAudioPlayer, type HlsPlayerControls } from "@/components/hls-audio-player";
 import { KeyboardShortcutsHint } from "@/components/keyboard-shortcuts-hint";
+import { usePlaybackSession } from "@/components/playback/playback-provider";
+import type { PlaybackTrack } from "@/components/playback/playback-provider";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -86,43 +87,16 @@ function StatusChip({ status }: { status: LibraryUploadRow["status"] }) {
   );
 }
 
-function DockSkipControls({
-  canPrevious,
-  canNext,
-  onPrevious,
-  onNext,
-}: {
-  canPrevious: boolean;
-  canNext: boolean;
-  onPrevious: () => void;
-  onNext: () => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-1">
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="size-9 rounded-full"
-        aria-label="Previous track"
-        disabled={!canPrevious}
-        onClick={onPrevious}
-      >
-        <SkipBack className="size-4 fill-current" aria-hidden />
-      </Button>
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="size-9 rounded-full"
-        aria-label="Next track"
-        disabled={!canNext}
-        onClick={onNext}
-      >
-        <SkipForward className="size-4 fill-current" aria-hidden />
-      </Button>
-    </div>
-  );
+function toPlaybackTrack(row: LibraryUploadRow, baseUrl: string): PlaybackTrack {
+  const masterKey = deriveHlsMasterKeyFromUploadKey(row.key);
+  return {
+    fallbackUrl: row.publicUrl,
+    hlsUrl: masterKey ? joinPublicObjectUrl(baseUrl, masterKey) : row.publicUrl,
+    id: row.id,
+    status: row.status,
+    subtitle: `Added ${formatCreatedAt(row.createdAt)}`,
+    title: row.filename,
+  };
 }
 
 function isTypingTarget(target: EventTarget | null) {
@@ -136,14 +110,15 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const playback = usePlaybackSession();
+  const { load, subscribeSkip, syncLibrary, dismiss, track: activeTrack } = playback;
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
-  const [playingId, setPlayingId] = useState<string | null>(initialSelectedId ?? null);
   const [query, setQuery] = useState("");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const prevStatuses = useRef<Map<string, LibraryUploadRow["status"]> | null>(null);
-  const playerControlsRef = useRef<HlsPlayerControls | null>(null);
   const rowRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+  const boot = useRef(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const clearDeleteArmed = useCallback(() => setDeleteArmedId(null), []);
 
@@ -166,22 +141,11 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
   );
 
   const selected = selectedId ? (uploads.find((u) => u.id === selectedId) ?? null) : null;
-  const playing = playingId ? (uploads.find((u) => u.id === playingId) ?? null) : null;
+  const playingId = activeTrack?.id ?? null;
 
-  const playingIndex = playing ? sorted.findIndex((u) => u.id === playing.id) : -1;
-  const previousReady =
-    playingIndex > 0
-      ? sorted
-          .slice(0, playingIndex)
-          .reverse()
-          .find((u) => u.status === "ready")
-      : undefined;
-  const nextReady =
-    playingIndex >= 0
-      ? sorted.slice(playingIndex + 1).find((u) => u.status === "ready")
-      : undefined;
-  const canPrevious = Boolean(previousReady);
-  const canNext = Boolean(nextReady);
+  useEffect(() => {
+    syncLibrary(sorted.map((row) => toPlaybackTrack(row, r2PublicBaseUrl)));
+  }, [r2PublicBaseUrl, sorted, syncLibrary]);
 
   useEffect(() => {
     if (pending.length === 0) return;
@@ -221,6 +185,28 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
     [pathname, router, searchParams]
   );
 
+  useEffect(() => {
+    if (boot.current) return;
+    if (activeTrack) {
+      boot.current = true;
+      return;
+    }
+    if (sorted.length === 0) return;
+    boot.current = true;
+    const row = sorted.find((item) => item.id === initialSelectedId) ?? sorted[0];
+    if (!row) return;
+    load(toPlaybackTrack(row, r2PublicBaseUrl), { quiet: true });
+  }, [activeTrack, initialSelectedId, load, r2PublicBaseUrl, sorted]);
+
+  useEffect(() => {
+    return subscribeSkip((id) => {
+      setSelectedId(id);
+      setDeleteArmedId(null);
+      syncSelectedQuery(id);
+      rowRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
+    });
+  }, [subscribeSkip, syncSelectedQuery]);
+
   const handleSelect = useCallback(
     (id: string) => {
       setSelectedId(id);
@@ -235,32 +221,13 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
     (id: string) => {
       const track = uploads.find((u) => u.id === id);
       if (!track || track.status !== "ready") return;
-      if (playingId === id) {
-        playerControlsRef.current?.togglePlay();
-        return;
-      }
-      setPlayingId(id);
+      load(toPlaybackTrack(track, r2PublicBaseUrl), { toggleIfSame: true });
       setSelectedId(id);
+      setDeleteArmedId(null);
       syncSelectedQuery(id);
     },
-    [playingId, syncSelectedQuery, uploads]
+    [load, r2PublicBaseUrl, syncSelectedQuery, uploads]
   );
-
-  const goPrevious = useCallback(() => {
-    if (previousReady) {
-      setPlayingId(previousReady.id);
-      setSelectedId(previousReady.id);
-      syncSelectedQuery(previousReady.id);
-    }
-  }, [previousReady, syncSelectedQuery]);
-
-  const goNext = useCallback(() => {
-    if (nextReady) {
-      setPlayingId(nextReady.id);
-      setSelectedId(nextReady.id);
-      syncSelectedQuery(nextReady.id);
-    }
-  }, [nextReady, syncSelectedQuery]);
 
   const moveListSelection = useCallback(
     (delta: number) => {
@@ -299,12 +266,10 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
         setSelectedId(null);
         syncSelectedQuery(null);
       }
-      if (playingId === upload.id) {
-        setPlayingId(null);
-      }
+      dismiss(upload.id);
       router.refresh();
     },
-    [playingId, router, selectedId, syncSelectedQuery]
+    [dismiss, router, selectedId, syncSelectedQuery]
   );
 
   useEffect(() => {
@@ -312,7 +277,6 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
       if (isTypingTarget(event.target)) return;
 
       const key = event.key;
-      const lower = key.toLowerCase();
 
       if (key === "?" || (event.shiftKey && key === "/")) {
         event.preventDefault();
@@ -320,16 +284,6 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
         return;
       }
 
-      if (lower === "j") {
-        event.preventDefault();
-        goPrevious();
-        return;
-      }
-      if (lower === "k") {
-        event.preventDefault();
-        goNext();
-        return;
-      }
       const inTrackList =
         event.target instanceof HTMLElement &&
         Boolean(event.target.closest("[data-slot='track-list']"));
@@ -368,36 +322,12 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
           return;
         }
         void handleDelete(selected);
-        return;
-      }
-      if (key === " " && playing?.status === "ready") {
-        event.preventDefault();
-        playerControlsRef.current?.togglePlay();
-        return;
-      }
-      if (key === "ArrowLeft" && playing?.status === "ready") {
-        event.preventDefault();
-        playerControlsRef.current?.seekBy(-5);
-        return;
-      }
-      if (key === "ArrowRight" && playing?.status === "ready") {
-        event.preventDefault();
-        playerControlsRef.current?.seekBy(5);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    deleteArmedId,
-    goNext,
-    goPrevious,
-    handleDelete,
-    moveListSelection,
-    playTrack,
-    playing?.status,
-    selected,
-  ]);
+  }, [deleteArmedId, handleDelete, moveListSelection, playTrack, selected]);
 
   if (uploads.length === 0) {
     return (
@@ -417,14 +347,8 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
     );
   }
 
-  const masterKey = playing ? deriveHlsMasterKeyFromUploadKey(playing.key) : null;
-  const hlsUrl =
-    playing && masterKey !== null
-      ? joinPublicObjectUrl(r2PublicBaseUrl, masterKey)
-      : (playing?.publicUrl ?? "");
-
   return (
-    <div className="flex w-full flex-col pb-[calc(9.5rem+env(safe-area-inset-bottom))]">
+    <div className="flex w-full flex-col">
       <header className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
@@ -478,7 +402,7 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
           <TrackList aria-label="Tracks" className="p-2">
             {filtered.map((upload, index) => {
               const isSelected = selected?.id === upload.id;
-              const isPlaying = playing?.id === upload.id;
+              const isPlaying = playingId === upload.id;
               const deleteDisabled =
                 upload.status === "processing" || upload.status === "uploading";
               return (
@@ -528,71 +452,6 @@ export function UploadLibrary({ uploads, r2PublicBaseUrl, initialSelectedId }: P
           </TrackList>
         )}
       </ScrollArea>
-
-      <div
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm supports-backdrop-filter:bg-background/85"
-        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
-      >
-        <div className="mx-auto w-full max-w-2xl">
-          {!playing ? (
-            <p className="py-2 text-center text-sm text-muted-foreground">
-              Select a track, then press Enter or double-click to play
-            </p>
-          ) : playing.status === "uploading" || playing.status === "processing" ? (
-            <div className="flex items-center gap-3" aria-busy="true">
-              <DockSkipControls
-                canPrevious={canPrevious}
-                canNext={canNext}
-                onPrevious={goPrevious}
-                onNext={goNext}
-              />
-              <Loader2 className="size-5 shrink-0 animate-spin text-primary" aria-hidden />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{playing.filename}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {playing.status === "uploading"
-                    ? "Finishing upload…"
-                    : "Processing — usually up to about 5 minutes"}
-                </p>
-              </div>
-            </div>
-          ) : playing.status === "failed" ? (
-            <div className="flex items-center gap-3">
-              <DockSkipControls
-                canPrevious={canPrevious}
-                canNext={canNext}
-                onPrevious={goPrevious}
-                onNext={goNext}
-              />
-              <CircleAlert className="size-5 shrink-0 text-destructive" aria-hidden />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{playing.filename}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  Processing failed — try uploading again
-                </p>
-              </div>
-              <Button asChild variant="outline" size="sm" className="h-8 shrink-0">
-                <Link href="/upload">Upload</Link>
-              </Button>
-            </div>
-          ) : (
-            <HlsAudioPlayer
-              key={playing.id}
-              variant="dock"
-              hlsUrl={hlsUrl}
-              fallbackUrl={playing.publicUrl}
-              label={playing.filename}
-              title={playing.filename}
-              subtitle={`Added ${formatCreatedAt(playing.createdAt)}`}
-              onPrevious={goPrevious}
-              onNext={goNext}
-              canPrevious={canPrevious}
-              canNext={canNext}
-              controlsRef={playerControlsRef}
-            />
-          )}
-        </div>
-      </div>
     </div>
   );
 }
