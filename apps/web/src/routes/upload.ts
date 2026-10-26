@@ -4,16 +4,9 @@ import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { publishTranscodeJob } from "@/lib/service-bus";
 import { handlePublishFailure } from "@/lib/upload-failure";
-import { deriveOutputPrefixFromUploadKey } from "@/lib/upload-hls";
 import { tryCatch } from "@/lib/try-catch";
-import {
-  createR2Client,
-  deleteObject,
-  deleteObjects,
-  getPresignedUploadUrl,
-  getPublicUrl,
-  listObjectKeys,
-} from "@vessel/r2";
+import { deleteStoredUpload } from "@/lib/upload-storage";
+import { createR2Client, deleteObject, getPresignedUploadUrl, getPublicUrl } from "@vessel/r2";
 import { and, eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 import { nanoid } from "nanoid";
@@ -202,7 +195,9 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
       return new Response("Cannot delete while processing", { status: 409 });
     }
 
-    const { error: storageError } = await tryCatch(deleteUploadObjects(row.key));
+    const { error: storageError } = await tryCatch(
+      deleteStoredUpload(r2, env.R2_BUCKET, row.key),
+    );
     if (storageError) {
       console.error("[upload.delete] Storage cleanup failed", {
         uploadId: id,
@@ -222,29 +217,3 @@ export const uploadRouter = new Elysia({ prefix: "/upload" })
 
     return { id, deleted: true };
   });
-
-async function deleteUploadObjects(sourceKey: string): Promise<void> {
-  const keys = new Set<string>([sourceKey]);
-  const outputPrefix = deriveOutputPrefixFromUploadKey(sourceKey);
-
-  if (outputPrefix) {
-    const listed = await listObjectKeys(r2, {
-      bucket: env.R2_BUCKET,
-      prefix: `${outputPrefix}/`,
-    });
-    for (const key of listed.keys) keys.add(key);
-  }
-
-  const keyList = [...keys];
-  if (keyList.length === 1) {
-    await deleteObject(r2, { bucket: env.R2_BUCKET, key: keyList[0]! });
-    return;
-  }
-
-  const result = await deleteObjects(r2, { bucket: env.R2_BUCKET, keys: keyList });
-  if (result.failedKeys.length > 0) {
-    throw new Error(
-      `Failed to delete ${result.failedKeys.length} object(s): ${result.failedKeys[0]?.error ?? "unknown"}`,
-    );
-  }
-}

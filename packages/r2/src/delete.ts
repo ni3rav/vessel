@@ -1,6 +1,9 @@
 import { DeleteObjectCommand, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import type { S3Client } from "@aws-sdk/client-s3";
+import { listObjectKeys } from "./list";
 import type {
+  DeleteKeyAndPrefixOptions,
+  DeleteKeyAndPrefixResult,
   DeleteObjectOptions,
   DeleteObjectResult,
   DeleteObjectsOptions,
@@ -89,4 +92,65 @@ export async function deleteObjects(
     deletedKeys,
     failedKeys,
   };
+}
+
+function directoryPrefix(prefix: string): string {
+  const normalized = prefix.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalized) {
+    throw new Error("DeleteKeyAndPrefix requires a non-empty prefix.");
+  }
+  return `${normalized}/`;
+}
+
+async function deleteCollectedKeys(
+  client: S3Client,
+  bucket: string,
+  keys: string[],
+): Promise<string[]> {
+  if (keys.length === 1) {
+    const onlyKey = keys[0];
+    if (!onlyKey) {
+      throw new Error("DeleteKeyAndPrefix requires a non-empty key.");
+    }
+    await deleteObject(client, { bucket, key: onlyKey });
+    return [onlyKey];
+  }
+
+  const result = await deleteObjects(client, { bucket, keys });
+  if (result.failedKeys.length > 0) {
+    throw new Error(
+      `Failed to delete ${result.failedKeys.length} object(s): ${result.failedKeys[0]?.error ?? "unknown"}`,
+    );
+  }
+  return result.deletedKeys;
+}
+
+export async function deleteKeyAndPrefix(
+  client: S3Client,
+  options: DeleteKeyAndPrefixOptions,
+): Promise<DeleteKeyAndPrefixResult> {
+  const key = normalizeKey(options.key);
+  if (!key) {
+    throw new Error("DeleteKeyAndPrefix requires a non-empty key.");
+  }
+
+  const rawPrefix = options.prefix?.trim() ?? "";
+  const prefix = rawPrefix ? directoryPrefix(rawPrefix) : null;
+  const keys = new Set<string>([key]);
+
+  if (prefix) {
+    const listed = await listObjectKeys(client, { bucket: options.bucket, prefix });
+    for (const listedKey of listed.keys) keys.add(listedKey);
+  }
+
+  const deletedKeys = await deleteCollectedKeys(client, options.bucket, [...keys]);
+
+  if (prefix) {
+    const remaining = await listObjectKeys(client, { bucket: options.bucket, prefix });
+    if (remaining.keys.length > 0) {
+      throw new Error(`Objects remain under prefix after delete (${remaining.keys.length}).`);
+    }
+  }
+
+  return { deletedKeys };
 }

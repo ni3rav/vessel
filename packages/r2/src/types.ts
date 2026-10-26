@@ -48,6 +48,17 @@ export interface DeleteObjectsResult {
   failedKeys: Array<{ key: string; error: string }>;
 }
 
+export interface DeleteKeyAndPrefixOptions {
+  bucket: string;
+  key: string;
+  /** Directory listed and deleted with `key`. A trailing slash is enforced. */
+  prefix?: string | null;
+}
+
+export interface DeleteKeyAndPrefixResult {
+  deletedKeys: string[];
+}
+
 export interface ListObjectKeysOptions {
   bucket: string;
   prefix: string;
